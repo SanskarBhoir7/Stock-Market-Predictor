@@ -8,6 +8,7 @@ signal-fusion pipeline powered by live yfinance feeds.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from statistics import mean
 from typing import Any, Dict, List, Tuple
 
@@ -65,6 +66,113 @@ def _vote_from_score(score: float, threshold: float = 0.1) -> str:
     if score < -threshold:
         return "Bearish"
     return "Neutral"
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _sigmoid(x: float) -> float:
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def _safe_logit(p: float) -> float:
+    p = _clamp(p, 1e-6, 1 - 1e-6)
+    return math.log(p / (1 - p))
+
+
+def _three_way_entropy(p_up: float, p_down: float, p_sideways: float) -> float:
+    probs = [max(1e-12, p_up), max(1e-12, p_down), max(1e-12, p_sideways)]
+    h = -sum(p * math.log(p) for p in probs)
+    return h / math.log(3.0)
+
+
+def _mean_age_hours(agent_result: Dict[str, Any]) -> float | None:
+    """
+    Estimate data recency for an agent by inspecting signal/headline timestamps.
+    """
+    now = datetime.now(UTC)
+    ages: List[float] = []
+
+    signals = agent_result.get("signals")
+    if isinstance(signals, list):
+        for item in signals:
+            if isinstance(item, dict):
+                ts = item.get("timestamp")
+                if isinstance(ts, str):
+                    try:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        ages.append(max(0.0, (now - dt.astimezone(UTC)).total_seconds() / 3600.0))
+                    except ValueError:
+                        continue
+    elif isinstance(signals, dict):
+        for item in signals.values():
+            if isinstance(item, dict):
+                ts = item.get("timestamp")
+                if isinstance(ts, str):
+                    try:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        ages.append(max(0.0, (now - dt.astimezone(UTC)).total_seconds() / 3600.0))
+                    except ValueError:
+                        continue
+
+    # Yahoo headline timestamps are epoch seconds.
+    for item in agent_result.get("top_headlines", []):
+        ts = item.get("timestamp")
+        if isinstance(ts, (int, float)) and ts > 0:
+            dt = datetime.fromtimestamp(float(ts), tz=UTC)
+            ages.append(max(0.0, (now - dt).total_seconds() / 3600.0))
+
+    return mean(ages) if ages else None
+
+
+def _agent_reliability(agent_result: Dict[str, Any]) -> float:
+    """
+    Reliability score in [0.35, 1.0] based on missing data and sample depth.
+    """
+    base = 1.0
+    signals = agent_result.get("signals")
+    if isinstance(signals, list) and signals:
+        missing = sum(1 for x in signals if isinstance(x, dict) and x.get("status") == "DATA_UNAVAILABLE")
+        base -= 0.4 * (missing / len(signals))
+    elif isinstance(signals, dict):
+        nested = [v for v in signals.values() if isinstance(v, dict)]
+        if nested:
+            missing = sum(1 for x in nested if x.get("status") == "DATA_UNAVAILABLE")
+            base -= 0.4 * (missing / len(nested))
+        elif signals.get("status") == "DATA_UNAVAILABLE":
+            base -= 0.5
+
+    if agent_result.get("agent") == "News-Sentiment":
+        headline_count = int(agent_result.get("headline_count", 0))
+        if headline_count == 0:
+            base -= 0.45
+        elif headline_count < 3:
+            base -= 0.2
+
+    return _clamp(base, 0.35, 1.0)
+
+
+def _agent_freshness(agent_result: Dict[str, Any]) -> float:
+    """
+    Freshness decay: exp(-age_hours / tau), clipped to [0.45, 1.0].
+    """
+    age_hours = _mean_age_hours(agent_result)
+    if age_hours is None:
+        # Technical data may not carry explicit timestamps in our payload.
+        return 0.9 if agent_result.get("agent") == "Technical-Flow" else 0.75
+    return _clamp(math.exp(-age_hours / 72.0), 0.45, 1.0)
+
+
+def _horizon_days(horizon: str) -> float:
+    mapping = {
+        "1h": 1.0 / 6.0,   # approx one trading hour
+        "4h": 4.0 / 6.0,
+        "1d": 1.0,
+        "3d": 3.0,
+        "1w": 5.0,
+    }
+    return mapping.get(horizon, 1.0)
 
 
 class MacroGeopoliticsAgent:
@@ -263,45 +371,119 @@ class RiskManagerAgent:
         horizon: str,
         agent_results: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        weights = {
+        base_weights = {
             "Macro-Geopolitics": 0.2,
             "Commodities-FX": 0.2,
             "News-Sentiment": 0.25,
             "Technical-Flow": 0.35,
         }
 
-        weighted = 0.0
+        # 1) Convert each agent score into calibrated direction probability.
+        # p_i(up) = sigmoid(k * clamp(score_i, -2.5, 2.5))
+        evidence_log_odds = 0.0
+        effective_weights: Dict[str, float] = {}
+        weighted_score = 0.0
+        all_probs: List[float] = []
+        freshness_terms: List[float] = []
+        reliability_terms: List[float] = []
         for result in agent_results:
-            weight = weights.get(result["agent"], 0.0)
-            weighted += result.get("score", 0.0) * weight
+            agent = result["agent"]
+            score_i = float(result.get("score", 0.0))
+            p_i_up = _sigmoid(1.25 * _clamp(score_i, -2.5, 2.5))
+            all_probs.append(p_i_up)
+
+            reliability = _agent_reliability(result)
+            freshness = _agent_freshness(result)
+            reliability_terms.append(reliability)
+            freshness_terms.append(freshness)
+
+            w_eff = base_weights.get(agent, 0.0) * reliability * freshness
+            effective_weights[agent] = round(w_eff, 4)
+
+            evidence_log_odds += w_eff * _safe_logit(p_i_up)
+            weighted_score += w_eff * score_i
+
+        # 2) Fused directional probability via weighted log-odds.
+        p_up_raw = _sigmoid(evidence_log_odds)
 
         votes = [r["vote"] for r in agent_results]
         agreement = max(votes.count("Bullish"), votes.count("Bearish"), votes.count("Neutral")) / max(len(votes), 1)
-        if weighted > 0.2:
+        avg_freshness = mean(freshness_terms) if freshness_terms else 0.75
+        avg_reliability = mean(reliability_terms) if reliability_terms else 0.75
+
+        # 3) Build SIDEWAYS probability from uncertainty and disagreement.
+        directional_uncertainty = 1.0 - abs(2.0 * p_up_raw - 1.0)  # high when p_up_raw ~= 0.5
+        p_sideways = _clamp(
+            0.08 + 0.52 * directional_uncertainty + 0.25 * (1.0 - agreement),
+            0.05,
+            0.85,
+        )
+
+        trend_mass = 1.0 - p_sideways
+        p_up = trend_mass * p_up_raw
+        p_down = trend_mass * (1.0 - p_up_raw)
+
+        total_p = p_up + p_down + p_sideways
+        p_up, p_down, p_sideways = p_up / total_p, p_down / total_p, p_sideways / total_p
+
+        if p_up >= p_down and p_up >= p_sideways:
             final_call = "UP"
-        elif weighted < -0.2:
+        elif p_down >= p_up and p_down >= p_sideways:
             final_call = "DOWN"
         else:
             final_call = "SIDEWAYS"
 
-        base_conf = 52 + abs(weighted) * 28 + (agreement * 14)
-        if "Neutral" in votes and len(set(votes)) > 2:
-            base_conf -= 8
-        confidence = int(max(35, min(95, round(base_conf))))
+        # 4) Confidence from normalized 3-way entropy + data quality factors.
+        h_norm = _three_way_entropy(p_up, p_down, p_sideways)
+        confidence = int(
+            round(
+                _clamp(
+                    100.0 * (1.0 - h_norm) * (0.55 + 0.45 * agreement) * (0.55 + 0.45 * avg_freshness) * (0.6 + 0.4 * avg_reliability),
+                    25.0,
+                    96.0,
+                )
+            )
+        )
 
-        spread = max(0.01, min(0.04, abs(weighted) * 0.015 + 0.015))
-        midpoint = current_price * (1 + (weighted * 0.02))
-        lower = midpoint * (1 - spread / 2)
-        upper = midpoint * (1 + spread / 2)
+        # 5) Volatility-scaled probabilistic interval (lognormal approximation).
+        horizon_d = _horizon_days(horizon)
+        daily_sigma = 0.018
+        try:
+            hist = yf.Ticker(ticker).history(period="6mo", interval="1d")
+            if not hist.empty and len(hist) > 30:
+                returns = hist["Close"].pct_change().dropna()
+                if len(returns) > 20:
+                    daily_sigma = float(returns.std())
+        except Exception:
+            pass
 
-        invalidation = current_price * (1 - 0.012) if final_call == "UP" else current_price * (1 + 0.012)
-        stop_low = current_price * (1 - 0.02)
-        stop_high = current_price * (1 + 0.02)
+        sigma_h = max(0.004, daily_sigma * math.sqrt(max(horizon_d, 1e-3)))
+        directional_edge = p_up - p_down
+        expected_return = directional_edge * 0.35 * sigma_h
+        z_90 = 1.645
+        lower = current_price * math.exp(expected_return - z_90 * sigma_h)
+        upper = current_price * math.exp(expected_return + z_90 * sigma_h)
+
+        if final_call == "UP":
+            invalidation = current_price * math.exp(-0.65 * sigma_h)
+        elif final_call == "DOWN":
+            invalidation = current_price * math.exp(0.65 * sigma_h)
+        else:
+            invalidation = current_price
+
+        stop_low = current_price * math.exp(-1.0 * sigma_h)
+        stop_high = current_price * math.exp(1.0 * sigma_h)
 
         return {
             "agent": "Risk-Manager",
             "vote": "Risk-On" if final_call == "UP" else "Risk-Off" if final_call == "DOWN" else "Neutral",
-            "weighted_score": round(weighted, 3),
+            "weighted_score": round(weighted_score, 3),
+            "effective_weights": effective_weights,
+            "probabilities": {
+                "up": round(p_up, 4),
+                "down": round(p_down, 4),
+                "sideways": round(p_sideways, 4),
+            },
             "final_call": final_call,
             "confidence": confidence,
             "time_horizon": horizon,
@@ -313,8 +495,9 @@ class RiskManagerAgent:
                 "invalidation_level": round(invalidation, 2),
                 "stop_loss_zone": [round(stop_low, 2), round(stop_high, 2)],
                 "risk_alerts": [
-                    "Confidence degrades when data feeds are stale or conflicting.",
-                    "Treat macro/geopolitical shocks as gap risk outside model assumptions.",
+                    "Probabilities are entropy-adjusted and fall when agents disagree.",
+                    "Confidence degrades when source freshness/reliability falls.",
+                    "Macro/geopolitical shocks can still create regime breaks and gap risk.",
                 ],
             },
         }
@@ -370,7 +553,12 @@ class CoordinatorAgent:
             f"Macro risk tone: {macro_result['vote']} (score={macro_result['score']})",
             f"Commodities/FX pressure: {commodities_result['vote']} (score={commodities_result['score']})",
             f"News sentiment: {sentiment_result['vote']} (headlines={sentiment_result['headline_count']})",
-            f"Cross-agent agreement: {len(set([r['vote'] for r in core_results])) == 1}",
+            (
+                "Probabilities (UP/DOWN/SIDEWAYS): "
+                f"{risk_result['probabilities']['up']}/"
+                f"{risk_result['probabilities']['down']}/"
+                f"{risk_result['probabilities']['sideways']}"
+            ),
         ]
 
         return {
@@ -392,6 +580,7 @@ class CoordinatorAgent:
                 "technical_flow": {"vote": technical_result["vote"], "reason": technical_result["reason"]},
                 "risk_manager": {"vote": risk_result["vote"], "reason": "Weighted fusion of all agent scores."},
             },
+            "probabilities": risk_result["probabilities"],
             "risk_plan": risk_result["risk_plan"],
             "missing_data": sorted(set(missing_data)),
             "raw_agents": {

@@ -7,6 +7,47 @@ from agents.coordinator_agent import CoordinatorAgent
 router = APIRouter()
 coordinator = CoordinatorAgent()
 
+
+@router.get("/search-suggestions", response_model=List[Dict[str, str]])
+def get_search_suggestions(
+    q: str,
+    limit: int = 8,
+    current_user = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Return ticker autocomplete suggestions from Yahoo Finance search.
+    """
+    try:
+        query = (q or "").strip()
+        if len(query) < 2:
+            return []
+
+        safe_limit = max(1, min(int(limit), 15))
+        search = yf.Search(query=query, max_results=safe_limit)
+        quotes = getattr(search, "quotes", []) or []
+
+        suggestions: List[Dict[str, str]] = []
+        seen = set()
+        for item in quotes:
+            symbol = (item.get("symbol") or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            suggestions.append(
+                {
+                    "symbol": symbol,
+                    "name": (item.get("shortname") or item.get("longname") or symbol).strip(),
+                    "exchange": (item.get("exchange") or item.get("exchDisp") or "").strip(),
+                    "type": (item.get("quoteType") or "").strip(),
+                }
+            )
+            if len(suggestions) >= safe_limit:
+                break
+
+        return suggestions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search suggestion error: {str(e)}")
+
 @router.get("/data", response_model=Dict[str, Any])
 def get_market_data(ticker: str, current_user = Depends(deps.get_current_user)) -> Any:
     """

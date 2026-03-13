@@ -54,6 +54,10 @@ export const authService = {
 };
 
 export const marketService = {
+  getSearchSuggestions: async (query, limit = 8) => {
+    const response = await api.get(`/market/search-suggestions?q=${encodeURIComponent(query)}&limit=${limit}`);
+    return response.data;
+  },
   getTickerData: async (ticker) => {
     const response = await api.get(`/market/data?ticker=${ticker}`);
     return response.data;

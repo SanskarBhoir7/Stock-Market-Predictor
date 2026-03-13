@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState, useCallback } from 'react';
+import React, { useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import Auth from './pages/Auth';
@@ -18,19 +18,28 @@ const ProtectedRoute = ({ children }) => {
 function Dashboard() {
   const { user, logout } = useContext(AuthContext);
   const [ticker, setTicker] = useState("RELIANCE.NS");
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [data, setData] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [news, setNews] = useState([]);
   const [prediction, setPrediction] = useState(null);
   const [loading, setLoading] = useState(true);
+  const searchBoxRef = useRef(null);
 
-  const fetchMarketData = useCallback(async () => {
+  const fetchMarketData = useCallback(async (requestedTicker) => {
+    const activeTicker = (requestedTicker || ticker || "").trim().toUpperCase();
+    if (!activeTicker) return;
+    if (activeTicker !== ticker) {
+      setTicker(activeTicker);
+    }
     setLoading(true);
     try {
       const [marketRes, histRes, newsRes] = await Promise.all([
-         marketService.getTickerData(ticker),
-         marketService.getHistoricalData(ticker, '1y'),
-         marketService.getNewsData(ticker)
+         marketService.getTickerData(activeTicker),
+         marketService.getHistoricalData(activeTicker, '1y'),
+         marketService.getNewsData(activeTicker)
       ]);
       setData(marketRes);
       setChartData(histRes);
@@ -40,7 +49,7 @@ function Dashboard() {
       if (marketRes.current_price) {
           // Find overall sentiment tag to feed GAN
           const overallSentiment = newsRes.length > 0 && newsRes[0].sentiment === 'POSITIVE' ? 'POSITIVE' : 'NEUTRAL';
-          const predRes = await marketService.getPredictionData(ticker, marketRes.current_price, overallSentiment, '1d');
+          const predRes = await marketService.getPredictionData(activeTicker, marketRes.current_price, overallSentiment, '1d');
           setPrediction(predRes);
       }
 
@@ -52,8 +61,51 @@ function Dashboard() {
   }, [ticker]);
 
   useEffect(() => {
-    fetchMarketData();
-  }, [fetchMarketData]);
+    fetchMarketData("RELIANCE.NS");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const query = ticker.trim();
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+        const result = await marketService.getSearchSuggestions(query, 8);
+        setSuggestions(Array.isArray(result) ? result : []);
+        setShowSuggestions(true);
+      } catch (error) {
+        console.error("Search suggestion fetch failed:", error);
+        setSuggestions([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [ticker]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelectSuggestion = (symbol) => {
+    setTicker(symbol);
+    setShowSuggestions(false);
+    fetchMarketData(symbol);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white p-8 font-sans transition-all duration-500">
@@ -62,15 +114,44 @@ function Dashboard() {
           AI Trading Engine
         </h1>
         <div className="flex items-center gap-4">
-          <input 
-             type="text" 
-             value={ticker} 
-             onChange={(e) => setTicker(e.target.value.toUpperCase())} 
-             onKeyDown={(e) => e.key === 'Enter' && fetchMarketData()}
-             placeholder="Search Ticker (e.g. TCS.NS)"
-             className="bg-gray-900/50 border border-gray-700 focus:border-purple-500 rounded-lg px-4 py-2 text-sm outline-none font-mono"
-          />
-          <button onClick={fetchMarketData} className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition">
+          <div className="relative" ref={searchBoxRef}>
+            <input 
+               type="text" 
+               value={ticker} 
+               onChange={(e) => setTicker(e.target.value)}
+               onFocus={() => setShowSuggestions(suggestions.length > 0)}
+               onKeyDown={(e) => {
+                 if (e.key === 'Enter') {
+                   setShowSuggestions(false);
+                   fetchMarketData(ticker);
+                 }
+               }}
+               placeholder="Search Ticker (e.g. TCS.NS)"
+               className="bg-gray-900/50 border border-gray-700 focus:border-purple-500 rounded-lg px-4 py-2 text-sm outline-none font-mono w-72"
+            />
+            {showSuggestions && (
+              <div className="absolute top-11 left-0 z-30 w-full bg-gray-900 border border-gray-700 rounded-lg shadow-2xl max-h-72 overflow-y-auto">
+                {searchLoading && (
+                  <div className="px-3 py-2 text-xs text-gray-400">Searching...</div>
+                )}
+                {!searchLoading && suggestions.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-gray-400">No recommendations found.</div>
+                )}
+                {!searchLoading && suggestions.map((item) => (
+                  <button
+                    key={item.symbol}
+                    type="button"
+                    onClick={() => handleSelectSuggestion(item.symbol)}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-800 transition border-b border-gray-800 last:border-b-0"
+                  >
+                    <div className="text-sm text-white font-semibold">{item.symbol}</div>
+                    <div className="text-xs text-gray-400 truncate">{item.name}{item.exchange ? ` • ${item.exchange}` : ''}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button onClick={() => fetchMarketData(ticker)} className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition">
              <RefreshCw size={18} className={loading ? "animate-spin text-purple-400" : "text-gray-400"} />
           </button>
         </div>
