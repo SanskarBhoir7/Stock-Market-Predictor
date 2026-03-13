@@ -9,23 +9,27 @@ from src.preprocessor import add_technical_indicators, prepare_features, FEATURE
 from src.model import load_model
 
 
-def predict_next_close(ticker: str) -> float:
+def predict_next_close(ticker: str, model_type: str = "random_forest", horizon: int = 1) -> float:
     """
-    Predict the next-day closing price for *ticker*.
+    Predict the closing price *horizon* trading days ahead for *ticker*.
 
     Fetches the latest 90 days of data (enough to compute all indicators),
     applies feature engineering, loads the saved model, and returns the
-    predicted closing price for the next trading day.
+    predicted closing price.
 
     Parameters
     ----------
     ticker : str
         Stock ticker symbol, e.g. ``"AAPL"``.
+    model_type : str
+        Model type to load (must match what was used during training).
+    horizon : int
+        Forecast horizon in trading days (must match what was used during training).
 
     Returns
     -------
     float
-        Predicted next-day closing price.
+        Predicted closing price *horizon* days from the most recent trading day.
     """
     df = fetch_stock_data(ticker, period="90d")
     df = add_technical_indicators(df)
@@ -35,7 +39,7 @@ def predict_next_close(ticker: str) -> float:
     # Drop rows where any feature is NaN, then take the last row
     latest = df[feature_cols].dropna().iloc[[-1]]
 
-    model, scaler = load_model(ticker)
+    model, scaler = load_model(ticker, model_type=model_type, horizon=horizon)
     latest_scaled = scaler.transform(latest)
     prediction = model.predict(latest_scaled)[0]
     return float(prediction)
