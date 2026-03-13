@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Any, Dict, List
 import yfinance as yf
 from api import deps
-import pandas as pd
-from core.ml_gan import GANForecaster
+from agents.coordinator_agent import CoordinatorAgent
 
 router = APIRouter()
+coordinator = CoordinatorAgent()
 
 @router.get("/data", response_model=Dict[str, Any])
 def get_market_data(ticker: str, current_user = Depends(deps.get_current_user)) -> Any:
@@ -133,22 +133,33 @@ def get_market_news(ticker: str, current_user = Depends(deps.get_current_user)) 
         raise HTTPException(status_code=500, detail=f"News sentiment fetch error: {str(e)}")
 
 @router.get("/prediction", response_model=Dict[str, Any])
-def get_prediction_bounds(ticker: str, current_price: float, sentiment: str = "NEUTRAL", current_user = Depends(deps.get_current_user)) -> Any:
+def get_prediction_bounds(
+    ticker: str,
+    current_price: float | None = None,
+    sentiment: str = "NEUTRAL",
+    horizon: str = "1d",
+    current_user = Depends(deps.get_current_user),
+) -> Any:
     """
-    Interfaces with the TimeGAN Simulator to output confidence intervals.
+    Real-time multi-agent prediction endpoint.
+    Kept backward compatible with legacy query params (current_price, sentiment).
     """
     try:
-        stock = yf.Ticker(ticker)
-        # Gather 3 months of volatility
-        hist = stock.history(period="3mo")
-        ohlcv = []
-        if not hist.empty:
-            for _, row in hist.iterrows():
-                ohlcv.append({"close": row['Close'] })
-        
-        forecaster = GANForecaster(ticker)
-        bounds = forecaster.generate_confidence_bounds(current_price, ohlcv, sentiment)
-        
-        return bounds
+        return coordinator.process_ticker(ticker=ticker, horizon=horizon)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GAN ML generator error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Multi-agent prediction error: {str(e)}")
+
+
+@router.get("/realtime-analysis", response_model=Dict[str, Any])
+def get_realtime_analysis(
+    ticker: str,
+    horizon: str = "1d",
+    current_user = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Explicit real-time analysis route returning full multi-agent output.
+    """
+    try:
+        return coordinator.process_ticker(ticker=ticker, horizon=horizon)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Realtime analysis error: {str(e)}")

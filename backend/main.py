@@ -28,10 +28,11 @@ def read_root():
         "message": "AI Trading Platform Backend is Running!",
         "version": settings.VERSION,
         "agents": [
-            "DataGathererAgent",
-            "SentimentAgent",
-            "PredictionAgent",
-            "ReportingAgent"
+            "MacroGeopoliticsAgent",
+            "CommoditiesFxAgent",
+            "NewsSentimentAgent",
+            "TechnicalFlowAgent",
+            "RiskManagerAgent"
         ]
     }
 

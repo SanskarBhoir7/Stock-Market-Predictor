@@ -66,8 +66,8 @@ export const marketService = {
     const response = await api.get(`/market/news?ticker=${ticker}`);
     return response.data;
   },
-  getPredictionData: async (ticker, currentPrice, sentiment) => {
-    const response = await api.get(`/market/prediction?ticker=${ticker}&current_price=${currentPrice}&sentiment=${sentiment}`);
+  getPredictionData: async (ticker, currentPrice, sentiment, horizon = '1d') => {
+    const response = await api.get(`/market/prediction?ticker=${ticker}&current_price=${currentPrice}&sentiment=${sentiment}&horizon=${horizon}`);
     return response.data;
   }
 };

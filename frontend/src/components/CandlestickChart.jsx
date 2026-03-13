@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
 
 export const CandlestickChart = ({ data, colors: {
     backgroundColor = 'transparent',
@@ -18,7 +18,9 @@ export const CandlestickChart = ({ data, colors: {
             }
         };
 
-        const chart = createChart(chartContainerRef.current, {
+        let chart;
+        try {
+            chart = createChart(chartContainerRef.current, {
             layout: {
                 background: { type: ColorType.Solid, color: backgroundColor },
                 textColor,
@@ -40,18 +42,33 @@ export const CandlestickChart = ({ data, colors: {
             crosshair: {
                 mode: 1, // CrosshairMode.Normal - but passing integer enum 1 avoids importing mode type from lightweight-charts
             }
-        });
+            });
+        } catch (error) {
+            console.error("Chart init error:", error);
+            return;
+        }
         
         chartRef.current = chart;
 
-        // Formulate Candlestick logic
-        const candlestickSeries = chart.addCandlestickSeries({
-            upColor: '#22c55e', 
-            downColor: '#ef4444', 
+        // Lightweight Charts v5 uses addSeries(); older versions use addCandlestickSeries().
+        let candlestickSeries;
+        const seriesOptions = {
+            upColor: '#22c55e',
+            downColor: '#ef4444',
             borderVisible: false,
-            wickUpColor: '#22c55e', 
-            wickDownColor: '#ef4444', 
-        });
+            wickUpColor: '#22c55e',
+            wickDownColor: '#ef4444',
+        };
+        if (typeof chart.addCandlestickSeries === 'function') {
+            candlestickSeries = chart.addCandlestickSeries(seriesOptions);
+        } else if (typeof chart.addSeries === 'function') {
+            candlestickSeries = chart.addSeries(CandlestickSeries, seriesOptions);
+        } else {
+            console.error("Chart series API unavailable.");
+            chart.remove();
+            chartRef.current = null;
+            return;
+        }
 
         // Lightweight Charts crash heavily on duplicated/unsynchronized date indices. Safety set:
         try {

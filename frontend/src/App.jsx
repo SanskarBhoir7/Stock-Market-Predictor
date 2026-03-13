@@ -40,7 +40,7 @@ function Dashboard() {
       if (marketRes.current_price) {
           // Find overall sentiment tag to feed GAN
           const overallSentiment = newsRes.length > 0 && newsRes[0].sentiment === 'POSITIVE' ? 'POSITIVE' : 'NEUTRAL';
-          const predRes = await marketService.getPredictionData(ticker, marketRes.current_price, overallSentiment);
+          const predRes = await marketService.getPredictionData(ticker, marketRes.current_price, overallSentiment, '1d');
           setPrediction(predRes);
       }
 
@@ -104,16 +104,23 @@ function Dashboard() {
           </div>
           
           <div className="space-y-4">
-            <h3 className="text-sm uppercase tracking-widest text-gray-500 font-semibold mb-2">GAN Prediction Vector</h3>
+            <h3 className="text-sm uppercase tracking-widest text-gray-500 font-semibold mb-2">Multi-Agent Prediction Vector</h3>
             <div className="bg-purple-950/40 border border-purple-500/30 rounded-xl p-5 shadow-[0_0_15px_rgba(168,85,247,0.15)] relative overflow-hidden">
                <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
-              <p className="text-xs text-purple-300 uppercase tracking-wide">Target Range (Next 5 Days)</p>
+              <p className="text-xs text-purple-300 uppercase tracking-wide">Target Range (Next 1 Day)</p>
               <p className="text-3xl font-extrabold text-white mt-2">
                 ₹{prediction?.lower_bound?.toLocaleString() || '---'} - ₹{prediction?.upper_bound?.toLocaleString() || '---'}
               </p>
               <div className="flex items-center mt-3 gap-2">
                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                 <p className="text-xs text-green-400 font-medium tracking-wide">CONFIDENCE: {prediction?.confidence_score || 0}% • WGAN-GPv2</p>
+                 <p className="text-xs text-green-400 font-medium tracking-wide">CONFIDENCE: {prediction?.confidence_score || 0}% • Multi-Agent</p>
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="text-gray-400">Final Call:</span>
+                <span className={`font-semibold ${prediction?.final_call === 'UP' ? 'text-green-400' : prediction?.final_call === 'DOWN' ? 'text-red-400' : 'text-yellow-400'}`}>
+                  {prediction?.final_call || 'SIDEWAYS'}
+                </span>
+                <span className="text-gray-500">| Horizon: {prediction?.time_horizon || '1d'}</span>
               </div>
             </div>
           </div>
@@ -171,15 +178,19 @@ function Dashboard() {
               <div className="space-y-4 relative z-10">
                 <div className="flex justify-between items-center bg-gray-800/40 p-3 rounded-lg border border-gray-700/50">
                   <span className="text-gray-400 text-sm">Active Model Architecture</span>
-                  <span className="font-bold text-cyan-400 font-mono text-sm">{prediction?.model_type || 'WGAN-GPv2'}</span>
+                  <span className="font-bold text-cyan-400 font-mono text-sm">{prediction?.model_type || 'Multi-Agent Signal Fusion'}</span>
                 </div>
                 <div className="flex justify-between items-center bg-gray-800/40 p-3 rounded-lg border border-gray-700/50">
-                  <span className="text-gray-400 text-sm">Mean Absolute Error (MAE)</span>
-                  <span className="font-bold text-white font-mono text-sm">0.42</span>
+                  <span className="text-gray-400 text-sm">Market Timestamp</span>
+                  <span className="font-bold text-white font-mono text-xs">{prediction?.market_timestamp ? new Date(prediction.market_timestamp).toLocaleString() : 'N/A'}</span>
                 </div>
                 <div className="flex justify-between items-center bg-gray-800/40 p-3 rounded-lg border border-gray-700/50">
-                  <span className="text-gray-400 text-sm">Root Mean Sq Error (RMSE)</span>
-                  <span className="font-bold text-white font-mono text-sm">0.58</span>
+                  <span className="text-gray-400 text-sm">Missing Data Signals</span>
+                  <span className="font-bold text-white font-mono text-sm">{prediction?.missing_data?.length ?? 0}</span>
+                </div>
+                <div className="bg-gray-800/40 p-3 rounded-lg border border-gray-700/50">
+                  <span className="text-gray-400 text-sm block mb-1">Top Driver</span>
+                  <span className="font-bold text-white text-sm">{prediction?.top_drivers?.[0] || 'Not available'}</span>
                 </div>
               </div>
             </div>
@@ -211,3 +222,4 @@ function App() {
 }
 
 export default App;
+

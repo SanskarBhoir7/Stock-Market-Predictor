@@ -6,8 +6,8 @@ A full-stack algorithmic trading platform designed for the Indian equity market 
 
 - **Multi-Agent Backend Architecture:** Powered by a fast and scalable FastAPI server.
 - **Real-time Indian Market Data:** Integrates directly with `yfinance` to scrape live OHLCV data, fundamentals, and financials (append `.NS` or `.BO` to tickers).
-- **AI TimeGAN Forecaster:** Generates intelligent upper and lower prediction bounds analyzing historical price volatility and directional NLP sentiment bias.
-- **Sentiment Analyzer Agent:** Ingests live Yahoo Finance headlines and flags them automatically as `POSITIVE`, `NEGATIVE`, or `NEUTRAL`.
+- **Real-Time Multi-Agent Prediction:** Fuses macro risk, commodities/FX, news sentiment, and technical flow into one directional call (`UP`, `DOWN`, `SIDEWAYS`) with confidence and risk plan.
+- **Sentiment + Macro Event Monitoring:** Ingests live Yahoo Finance headlines and applies severity-aware sentiment scoring.
 - **Professional Grade Charting:** Implements native local `lightweight-charts` by TradingView to render hyper-fluid Candlestick graphics.
 - **Secure JWT Authentication:** Implements `bcrypt` password hashing and secure JSON Web Tokens stored via a strict React `AuthContext` pipeline.
 - **Beautiful UI/UX:** Built on Vite + React + Tailwind CSS utilizing dynamic colors, glassmorphism overlays, and smooth CSS transitions.
@@ -99,9 +99,15 @@ npm run dev
 
 ## 🛡️ Architecture & Agents
 
-The backend is fundamentally designed on a localized **Multi-Agent System** coordinate protocol.
+The backend now runs a live **Multi-Agent System** orchestration pipeline.
 Currently wired agents:
 
-- **`DataGathererAgent`**: Scrapes YF endpoints for OHLCV bounds and trillion-rupee formatted market caps.
-- **`SentimentAgent`**: Ingests unstructured news arrays and runs heuristic logic arrays for immediate bias tracking.
-- **`PredictionAgent`**: Interfaces directly with the underlying `GANForecaster` framework to output mathematically weighted predictive confidence vectors over the next 5 active market days.
+- **`MacroGeopoliticsAgent`**: Tracks global index breadth, VIX pressure, and geopolitical keyword risk.
+- **`CommoditiesFxAgent`**: Monitors crude, metals, USDINR, DXY, and US10Y impact on equity risk.
+- **`NewsSentimentAgent`**: Scores ticker news with severe-event penalties and headline relevance.
+- **`TechnicalFlowAgent`**: Computes trend regime, RSI context, breakout confirmation, and volume spikes.
+- **`RiskManagerAgent`**: Performs weighted fusion and returns final call, confidence, bounds, and risk plan.
+
+Main prediction routes:
+- `GET /api/v1/market/prediction?ticker=RELIANCE.NS&horizon=1d`
+- `GET /api/v1/market/realtime-analysis?ticker=RELIANCE.NS&horizon=1d`
