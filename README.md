@@ -1,131 +1,107 @@
-# Stock-Market-Predictor
+# AI Trading Engine
 
-A command-line machine learning project that predicts future stock closing prices from historical market data and technical indicators.
+A full-stack algorithmic trading platform designed for the Indian equity market (NSE/BSE). This application integrates real-time financial tracking, sentiment analysis through natural language processing (NLP), and advanced machine learning predictive models (TimeGAN / WGAN-GP) into a highly responsive, glassmorphic React dashboard.
 
-## Features
+## 🌟 Key Features
 
-- Download historical stock data with `yfinance`
-- Engineer technical indicators such as `SMA`, `EMA`, `RSI`, `MACD`, Bollinger Bands, `ATR`, `OBV`, stochastic oscillator, `Williams %R`, and `CCI`
-- Train multiple regression models:
-  - `random_forest`
-  - `xgboost`
-  - `linear_regression`
-- Predict prices `1`, `3`, or `5` trading days ahead
-- Evaluate models with holdout metrics: `MAE`, `RMSE`, and `R2`
-- Run walk-forward time-series cross-validation
-- Save trained models, scalers, and metrics locally
-- Compare trained models for a ticker using a CLI report
+- **Multi-Agent Backend Architecture:** Powered by a fast and scalable FastAPI server.
+- **Real-time Indian Market Data:** Integrates directly with `yfinance` to scrape live OHLCV data, fundamentals, and financials (append `.NS` or `.BO` to tickers).
+- **AI TimeGAN Forecaster:** Generates intelligent upper and lower prediction bounds analyzing historical price volatility and directional NLP sentiment bias.
+- **Sentiment Analyzer Agent:** Ingests live Yahoo Finance headlines and flags them automatically as `POSITIVE`, `NEGATIVE`, or `NEUTRAL`.
+- **Professional Grade Charting:** Implements native local `lightweight-charts` by TradingView to render hyper-fluid Candlestick graphics.
+- **Secure JWT Authentication:** Implements `bcrypt` password hashing and secure JSON Web Tokens stored via a strict React `AuthContext` pipeline.
+- **Beautiful UI/UX:** Built on Vite + React + Tailwind CSS utilizing dynamic colors, glassmorphism overlays, and smooth CSS transitions.
 
-## Project Structure
+---
 
-```text
-Stock-Market-Predictor/
-|-- app.py
-|-- requirements.txt
-|-- data/
-|   |-- raw/
-|   `-- processed/
-|-- models/
-|   `-- saved_models/
-|-- notebooks/
-|   `-- exploratory_analysis.ipynb
-|-- src/
-|   |-- __init__.py
-|   |-- data_fetcher.py
-|   |-- preprocessor.py
-|   |-- model.py
-|   |-- predictor.py
-|   `-- reporter.py
-`-- tests/
-    |-- __init__.py
-    `-- test_predictor.py
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **Python 3.10+**
+- **Node.js (v18+)** and `npm`
+- **MySQL Server** (Running locally on default port `3306`)
+
+### 1. Database Configuration (MySQL)
+
+Create a local MySQL database named `ai_trading` and ensure your root configuration matches the `backend/core/config.py` definitions.
+
+```sql
+CREATE DATABASE ai_trading;
 ```
 
-## Setup
+### 2. Backend Setup (FastAPI)
+
+Navigate to the `backend` directory, initialize the Python virtual environment, and install dependencies:
 
 ```bash
-# Create and activate a virtual environment
+cd backend
 python -m venv venv
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 
-# Windows
-venv\Scripts\activate
+# Install all AI and System dependencies
+pip install fastapi uvicorn sqlalchemy pymysql pydantic pydantic-settings python-dotenv python-jose[cryptography] bcrypt langchain openai scikit-learn numpy pandas yfinance "pydantic[email]" python-multipart tensorflow keras
 
-# macOS / Linux
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Boot the FastAPI Server
+uvicorn main:app --reload --port 8000
 ```
 
-## CLI Modes
+The database tables (like `users`) will automatically be created on the very first boot.
 
-The application supports three modes:
+### 3. Frontend Setup (React/Vite)
 
-- `train`: fetch data, engineer features, train a model, evaluate it, and save artifacts
-- `predict`: load a previously trained model and predict a future closing price
-- `compare`: show a report of saved model metrics for a ticker
-
-## Usage
-
-### Train a model
+Open a new terminal window, navigate to the `frontend` directory:
 
 ```bash
-python app.py --ticker AAPL --period 2y --mode train --model random_forest --horizon 1
-python app.py --ticker AAPL --period 2y --mode train --model xgboost --horizon 3
-python app.py --ticker AAPL --period 5y --mode train --model linear_regression --horizon 5
+cd frontend
+
+# Install Node modules
+npm install
+npm install lightweight-charts lucide-react axios react-router-dom
+
+# Start the Development Server
+npm run dev
 ```
 
-### Predict with a saved model
+### 4. Accessing the Platform
 
-```bash
-python app.py --ticker AAPL --mode predict --model random_forest --horizon 1
-python app.py --ticker AAPL --mode predict --model xgboost --horizon 3
-```
+1. Open your browser and navigate to `http://localhost:5173`.
+2. As the database starts empty, click **Sign up** at the bottom of the card to create your first account.
+3. Upon registration, you will be redirected to the Dashboard.
+4. Try searching Indian tickers like `RELIANCE.NS`, `TCS.NS`, or `HDFCBANK.NS`.
 
-### Compare trained models
+---
 
-```bash
-python app.py --ticker AAPL --mode compare
-python app.py --ticker AAPL --mode compare --horizon 3
-```
+## 🛠️ Technology Stack
 
-## Command Arguments
+**Frontend:**
 
-- `--ticker`: stock ticker symbol, for example `AAPL`
-- `--period`: training history to download, for example `1y`, `2y`, or `5y`
-- `--mode`: one of `train`, `predict`, or `compare`
-- `--model`: one of `random_forest`, `xgboost`, or `linear_regression`
-- `--horizon`: forecast horizon in trading days, one of `1`, `3`, or `5`
+- React (Vite)
+- Tailwind CSS (Dark Mode, Glassmorphic UI)
+- TradingView Lightweight Charts
+- Axios (HTTP Interceptors for Auth)
+- React Router DOM
+- Lucide React Icons
 
-## Saved Outputs
+**Backend:**
 
-Training creates artifacts inside `models/saved_models/`:
+- FastAPI
+- Python 3.10+
+- MySQL (SQLAlchemy ORM)
+- PyMySQL Driver
+- JWT (python-jose)
+- bcrypt Password Hashing
+- TensorFlow / Keras (For Agent Models)
+- yfinance (Data Parsing)
+- Pandas & Numpy
 
-- model bundle: `<ticker>_<model>_h<horizon>_model.pkl`
-- metrics file: `<ticker>_<model>_h<horizon>_metrics.json`
+---
 
-Raw and processed datasets are saved in:
+## 🛡️ Architecture & Agents
 
-- `data/raw/`
-- `data/processed/`
+The backend is fundamentally designed on a localized **Multi-Agent System** coordinate protocol.
+Currently wired agents:
 
-## Example Workflow
-
-```bash
-# Train several models
-python app.py --ticker AAPL --period 2y --mode train --model random_forest --horizon 1
-python app.py --ticker AAPL --period 2y --mode train --model xgboost --horizon 1
-python app.py --ticker AAPL --period 2y --mode train --model linear_regression --horizon 1
-
-# Compare their saved metrics
-python app.py --ticker AAPL --mode compare --horizon 1
-
-# Use the best one for prediction
-python app.py --ticker AAPL --mode predict --model xgboost --horizon 1
-```
-
-## Running Tests
-
-```bash
-python -m pytest tests/
-```
+- **`DataGathererAgent`**: Scrapes YF endpoints for OHLCV bounds and trillion-rupee formatted market caps.
+- **`SentimentAgent`**: Ingests unstructured news arrays and runs heuristic logic arrays for immediate bias tracking.
+- **`PredictionAgent`**: Interfaces directly with the underlying `GANForecaster` framework to output mathematically weighted predictive confidence vectors over the next 5 active market days.
