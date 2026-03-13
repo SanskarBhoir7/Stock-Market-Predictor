@@ -8,7 +8,7 @@ A full-stack algorithmic trading platform designed for the Indian equity market 
 - **Real-time Indian Market Data:** Integrates directly with `yfinance` to scrape live OHLCV data, fundamentals, and financials (append `.NS` or `.BO` to tickers).
 - **AI TimeGAN Forecaster:** Generates intelligent upper and lower prediction bounds analyzing historical price volatility and directional NLP sentiment bias.
 - **Sentiment Analyzer Agent:** Ingests live Yahoo Finance headlines and flags them automatically as `POSITIVE`, `NEGATIVE`, or `NEUTRAL`.
-- **Professional Grade Charting:** Implements native local `lightweight-charts` by TradingView to render hyper-fluid Candlestick graphics.
+- **Professional Grade Charting:** Implements native local `lightweight-charts` by TradingView to render hyper-fluid Candlestick graphics. Includes strict numerical error-handling to prevent frontend crashes during market off-hours.
 - **Secure JWT Authentication:** Implements `bcrypt` password hashing and secure JSON Web Tokens stored via a strict React `AuthContext` pipeline.
 - **Beautiful UI/UX:** Built on Vite + React + Tailwind CSS utilizing dynamic colors, glassmorphism overlays, and smooth CSS transitions.
 

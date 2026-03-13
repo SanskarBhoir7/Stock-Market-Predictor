@@ -18,72 +18,85 @@ export const CandlestickChart = ({ data, colors: {
             }
         };
 
-        const chart = createChart(chartContainerRef.current, {
-            layout: {
-                background: { type: ColorType.Solid, color: backgroundColor },
-                textColor,
-            },
-            width: chartContainerRef.current.clientWidth || 600,
-            height: 400,
-            grid: {
-                vertLines: { color: 'rgba(192, 132, 252, 0.1)' },
-                horzLines: { color: 'rgba(192, 132, 252, 0.1)' },
-            },
-            rightPriceScale: {
-                borderVisible: false,
-            },
-            timeScale: {
-                borderVisible: false,
-                timeVisible: true,
-                secondsVisible: false,
-            },
-            crosshair: {
-                mode: 1, // CrosshairMode.Normal - but passing integer enum 1 avoids importing mode type from lightweight-charts
-            }
-        });
-        
-        chartRef.current = chart;
-
-        // Formulate Candlestick logic
-        const candlestickSeries = chart.addCandlestickSeries({
-            upColor: '#22c55e', 
-            downColor: '#ef4444', 
-            borderVisible: false,
-            wickUpColor: '#22c55e', 
-            wickDownColor: '#ef4444', 
-        });
-
-        // Lightweight Charts crash heavily on duplicated/unsynchronized date indices. Safety set:
         try {
-            const uniqueTimestamps = new Set();
-            const safeData = [];
+            if (!chartContainerRef.current) return;
+
+            const chart = createChart(chartContainerRef.current, {
+                layout: {
+                    background: { type: ColorType.Solid, color: backgroundColor },
+                    textColor,
+                },
+                width: chartContainerRef.current.clientWidth || 600,
+                height: 400,
+                grid: {
+                    vertLines: { color: 'rgba(192, 132, 252, 0.1)' },
+                    horzLines: { color: 'rgba(192, 132, 252, 0.1)' },
+                },
+                rightPriceScale: {
+                    borderVisible: false,
+                },
+                timeScale: {
+                    borderVisible: false,
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                crosshair: {
+                    mode: 1, 
+                }
+            });
+            
+            chartRef.current = chart;
+
+            // Formulate Candlestick logic
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#22c55e', 
+                downColor: '#ef4444', 
+                borderVisible: false,
+                wickUpColor: '#22c55e', 
+                wickDownColor: '#ef4444', 
+            });
+
+            // Parse Array
+            const dataMap = new Map();
             for (let i = 0; i < data.length; i++) {
                  const item = data[i];
-                 // Validate OHLC are valid numbers, else LightweightCharts will crash
                  if (
                      isNaN(item.open) || item.open === null ||
                      isNaN(item.high) || item.high === null ||
                      isNaN(item.low) || item.low === null ||
-                     isNaN(item.close) || item.close === null
+                     isNaN(item.close) || item.close === null ||
+                     !item.time
                  ) continue;
                  
-                 // Generate numeric unix timestamp (seconds) for absolute Chronological safety
-                 const timeSec = Math.floor(new Date(item.time).getTime() / 1000);
-                 
-                 if (!uniqueTimestamps.has(timeSec)) {
-                     uniqueTimestamps.add(timeSec);
-                     safeData.push({
-                         ...item,
-                         time: timeSec
-                     });
-                 }
+                 const dateParsed = new Date(item.time);
+                 if (isNaN(dateParsed.getTime())) continue;
+
+                 const businessDayStr = dateParsed.toISOString().split('T')[0];
+                 dataMap.set(businessDayStr, {
+                     time: businessDayStr,
+                     open: Number(item.open),
+                     high: Number(item.high),
+                     low: Number(item.low),
+                     close: Number(item.close)
+                 });
             }
-            // Sort ascending strictly mathematically
-            safeData.sort((a, b) => a.time - b.time);
-            candlestickSeries.setData(safeData);
-            chart.timeScale().fitContent();
+            
+            const safeData = Array.from(dataMap.values());
+            safeData.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            
+            if (safeData.length > 0) {
+                const verifiedData = [safeData[0]];
+                for (let i = 1; i < safeData.length; i++) {
+                    if (new Date(safeData[i].time).getTime() > new Date(verifiedData[verifiedData.length - 1].time).getTime()) {
+                         verifiedData.push(safeData[i]);
+                    }
+                }
+                candlestickSeries.setData(verifiedData);
+                chart.timeScale().fitContent();
+            }
+
         } catch (error) {
-            console.error("Candle chart render error:", error);
+            console.error("Candlestick Engine Engine CRASH caught completely:", error);
         }
 
         window.addEventListener('resize', handleResize);
