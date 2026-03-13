@@ -10,47 +10,47 @@ export const CandlestickChart = ({ data, colors: {
 
     useEffect(() => {
         if (!data || data.length === 0) return;
-        
-        // Setup chart instances
+        if (!chartContainerRef.current) return;
+
         const handleResize = () => {
             if (chartRef.current && chartContainerRef.current) {
-               chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+                chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
             }
         };
 
         let chart;
         try {
             chart = createChart(chartContainerRef.current, {
-            layout: {
-                background: { type: ColorType.Solid, color: backgroundColor },
-                textColor,
-            },
-            width: chartContainerRef.current.clientWidth || 600,
-            height: 400,
-            grid: {
-                vertLines: { color: 'rgba(192, 132, 252, 0.1)' },
-                horzLines: { color: 'rgba(192, 132, 252, 0.1)' },
-            },
-            rightPriceScale: {
-                borderVisible: false,
-            },
-            timeScale: {
-                borderVisible: false,
-                timeVisible: true,
-                secondsVisible: false,
-            },
-            crosshair: {
-                mode: 1, // CrosshairMode.Normal - but passing integer enum 1 avoids importing mode type from lightweight-charts
-            }
+                layout: {
+                    background: { type: ColorType.Solid, color: backgroundColor },
+                    textColor,
+                },
+                width: chartContainerRef.current.clientWidth || 600,
+                height: 400,
+                grid: {
+                    vertLines: { color: 'rgba(192, 132, 252, 0.1)' },
+                    horzLines: { color: 'rgba(192, 132, 252, 0.1)' },
+                },
+                rightPriceScale: {
+                    borderVisible: false,
+                },
+                timeScale: {
+                    borderVisible: false,
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                crosshair: {
+                    mode: 1,
+                }
             });
         } catch (error) {
-            console.error("Chart init error:", error);
+            console.error('Chart init error:', error);
             return;
         }
-        
+
         chartRef.current = chart;
 
-        // Lightweight Charts v5 uses addSeries(); older versions use addCandlestickSeries().
+        // lightweight-charts v5 uses addSeries(); older versions use addCandlestickSeries().
         let candlestickSeries;
         const seriesOptions = {
             upColor: '#22c55e',
@@ -64,43 +64,47 @@ export const CandlestickChart = ({ data, colors: {
         } else if (typeof chart.addSeries === 'function') {
             candlestickSeries = chart.addSeries(CandlestickSeries, seriesOptions);
         } else {
-            console.error("Chart series API unavailable.");
+            console.error('Chart series API unavailable.');
             chart.remove();
             chartRef.current = null;
             return;
         }
 
-        // Lightweight Charts crash heavily on duplicated/unsynchronized date indices. Safety set:
         try {
-            const uniqueTimestamps = new Set();
-            const safeData = [];
+            // De-duplicate by day and drop invalid points to avoid runtime chart crashes.
+            const dataMap = new Map();
             for (let i = 0; i < data.length; i++) {
-                 const item = data[i];
-                 // Validate OHLC are valid numbers, else LightweightCharts will crash
-                 if (
-                     isNaN(item.open) || item.open === null ||
-                     isNaN(item.high) || item.high === null ||
-                     isNaN(item.low) || item.low === null ||
-                     isNaN(item.close) || item.close === null
-                 ) continue;
-                 
-                 // Generate numeric unix timestamp (seconds) for absolute Chronological safety
-                 const timeSec = Math.floor(new Date(item.time).getTime() / 1000);
-                 
-                 if (!uniqueTimestamps.has(timeSec)) {
-                     uniqueTimestamps.add(timeSec);
-                     safeData.push({
-                         ...item,
-                         time: timeSec
-                     });
-                 }
+                const item = data[i];
+                if (
+                    isNaN(item.open) || item.open === null ||
+                    isNaN(item.high) || item.high === null ||
+                    isNaN(item.low) || item.low === null ||
+                    isNaN(item.close) || item.close === null ||
+                    !item.time
+                ) continue;
+
+                const dateParsed = new Date(item.time);
+                if (isNaN(dateParsed.getTime())) continue;
+
+                const businessDayStr = dateParsed.toISOString().split('T')[0];
+                dataMap.set(businessDayStr, {
+                    time: businessDayStr,
+                    open: Number(item.open),
+                    high: Number(item.high),
+                    low: Number(item.low),
+                    close: Number(item.close),
+                });
             }
-            // Sort ascending strictly mathematically
-            safeData.sort((a, b) => a.time - b.time);
-            candlestickSeries.setData(safeData);
-            chart.timeScale().fitContent();
+
+            const safeData = Array.from(dataMap.values());
+            safeData.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+            if (safeData.length > 0) {
+                candlestickSeries.setData(safeData);
+                chart.timeScale().fitContent();
+            }
         } catch (error) {
-            console.error("Candle chart render error:", error);
+            console.error('Candle chart render error:', error);
         }
 
         window.addEventListener('resize', handleResize);
