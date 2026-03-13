@@ -17,6 +17,8 @@ FEATURE_COLS = [
     "RSI_14", "MACD", "MACD_Signal",
     "BB_Upper", "BB_Lower",
     "Daily_Return", "Volatility_20",
+    # Additional indicators
+    "ATR_14", "OBV", "Stoch_K", "Stoch_D", "Williams_R", "CCI_20",
 ]
 
 
@@ -33,6 +35,11 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     - BB_Upper, BB_Lower: Bollinger Bands (20-day, 2 std)
     - Daily_Return    : Percentage daily return
     - Volatility_20   : 20-day rolling standard deviation of returns
+    - ATR_14          : Average True Range (14-day) – measures volatility
+    - OBV             : On-Balance Volume – trend confirmation via volume
+    - Stoch_K, Stoch_D: Stochastic Oscillator (14-day %K, 3-day SMA %D)
+    - Williams_R      : Williams %R (14-day) – overbought/oversold signal
+    - CCI_20          : Commodity Channel Index (20-day)
 
     Parameters
     ----------
@@ -76,6 +83,42 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Daily return & volatility
     data["Daily_Return"] = close.pct_change()
     data["Volatility_20"] = data["Daily_Return"].rolling(window=20).std()
+
+    # Average True Range (ATR-14)
+    high = data["High"]
+    low = data["Low"]
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+    data["ATR_14"] = true_range.rolling(window=14).mean()
+
+    # On-Balance Volume (OBV)
+    obv = [0]
+    for i in range(1, len(data)):
+        if close.iloc[i] > close.iloc[i - 1]:
+            obv.append(obv[-1] + data["Volume"].iloc[i])
+        elif close.iloc[i] < close.iloc[i - 1]:
+            obv.append(obv[-1] - data["Volume"].iloc[i])
+        else:
+            obv.append(obv[-1])
+    data["OBV"] = obv
+
+    # Stochastic Oscillator (14-day %K, 3-day SMA %D)
+    low_14 = low.rolling(window=14).min()
+    high_14 = high.rolling(window=14).max()
+    hl_range = high_14 - low_14
+    data["Stoch_K"] = np.where(hl_range > 1e-10, 100 * (close - low_14) / hl_range, np.nan)
+    data["Stoch_D"] = pd.Series(data["Stoch_K"], index=data.index).rolling(window=3).mean()
+
+    # Williams %R (14-day)
+    data["Williams_R"] = np.where(hl_range > 1e-10, -100 * (high_14 - close) / hl_range, np.nan)
+
+    # Commodity Channel Index (20-day)
+    typical_price = (high + low + close) / 3
+    cci_mean = typical_price.rolling(window=20).mean()
+    cci_std = typical_price.rolling(window=20).std()
+    data["CCI_20"] = np.where(cci_std > 1e-10, (typical_price - cci_mean) / (0.015 * cci_std), np.nan)
 
     return data
 
