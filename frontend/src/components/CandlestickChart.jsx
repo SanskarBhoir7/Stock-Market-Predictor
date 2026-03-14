@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
+import { createChart, ColorType } from 'lightweight-charts';
 
 export const CandlestickChart = ({ data, colors: {
     backgroundColor = 'transparent',
@@ -50,8 +50,6 @@ export const CandlestickChart = ({ data, colors: {
 
         chartRef.current = chart;
 
-        // lightweight-charts v5 uses addSeries(); older versions use addCandlestickSeries().
-        let candlestickSeries;
         const seriesOptions = {
             upColor: '#22c55e',
             downColor: '#ef4444',
@@ -59,16 +57,7 @@ export const CandlestickChart = ({ data, colors: {
             wickUpColor: '#22c55e',
             wickDownColor: '#ef4444',
         };
-        if (typeof chart.addCandlestickSeries === 'function') {
-            candlestickSeries = chart.addCandlestickSeries(seriesOptions);
-        } else if (typeof chart.addSeries === 'function') {
-            candlestickSeries = chart.addSeries(CandlestickSeries, seriesOptions);
-        } else {
-            console.error('Chart series API unavailable.');
-            chart.remove();
-            chartRef.current = null;
-            return;
-        }
+        const candlestickSeries = chart.addCandlestickSeries(seriesOptions);
 
         try {
             // De-duplicate by day and drop invalid points to avoid runtime chart crashes.

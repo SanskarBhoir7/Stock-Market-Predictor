@@ -1,15 +1,17 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 from core.config import settings
 
-# Create standard SQLAlchemy instances
-engine = create_engine(
-    settings.DATABASE_URL, 
-    pool_pre_ping=True, 
-    pool_size=10, 
-    max_overflow=20
-)
+database_url = settings.resolved_database_url
+
+engine_kwargs = {"pool_pre_ping": True}
+if database_url.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+
+engine = create_engine(database_url, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

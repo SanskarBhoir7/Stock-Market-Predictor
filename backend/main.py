@@ -1,32 +1,53 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
 from core.config import settings
 from database import engine, Base
 import models.user  # import models here to ensure they are registered with Base
 
-# Create tables in MySQL if they don't exist
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Backend API combining real-time market data, GAN forecasting, and Multi-Agent Orchestration.",
+    description="Backend API combining real-time market data and multi-agent market analysis.",
 )
+
+app.state.db_ready = False
+app.state.db_error = None
+
+
+def initialize_database() -> None:
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        Base.metadata.create_all(bind=engine)
+        app.state.db_ready = True
+        app.state.db_error = None
+    except SQLAlchemyError as exc:
+        app.state.db_ready = False
+        app.state.db_error = str(exc)
 
 # Allow React Frontend origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"], 
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def on_startup() -> None:
+    initialize_database()
+
 
 @app.get("/")
 def read_root():
     return {
         "message": "AI Trading Platform Backend is Running!",
         "version": settings.VERSION,
+        "database_ready": app.state.db_ready,
         "agents": [
             "MacroGeopoliticsAgent",
             "CommoditiesFxAgent",
@@ -36,5 +57,15 @@ def read_root():
         ]
     }
 
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "environment": settings.APP_ENV,
+        "database_ready": app.state.db_ready,
+        "database_error": app.state.db_error,
+    }
+
 from api.routes import api_router
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router, prefix=settings.API_V1_PREFIX)

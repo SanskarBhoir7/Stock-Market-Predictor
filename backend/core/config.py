@@ -1,30 +1,58 @@
-from pydantic_settings import BaseSettings
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "AI Trading Engine platform"
+    PROJECT_NAME: str = "AI Trading Engine"
     VERSION: str = "1.0.0"
-    
-    # MySQL Database Connection (pymysql is easier to install on macOS without compiling C extensions)
-    # Defaulting to localhost, port 3306. Update these once you have your MySQL setup.
+    API_V1_PREFIX: str = "/api/v1"
+
+    # Deployment / demo mode
+    APP_ENV: str = "development"
+
+    # Database configuration
+    DATABASE_URL: str | None = None
     MYSQL_USER: str = "root"
-    MYSQL_PASSWORD: str = "Vaibhav%408113"
+    MYSQL_PASSWORD: str = ""
     MYSQL_SERVER: str = "localhost"
     MYSQL_PORT: str = "3306"
     MYSQL_DB: str = "ai_trading"
-    
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_SERVER}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
+    SQLITE_DB_PATH: str = "backend/ai_trading.db"
 
     # JWT Authentication
-    SECRET_KEY: str = "OqEwKzqQpNjH8MKLpIuXzjE4D7B3RkPqT7H6B5N9vXg"  # Example key, must change in prod
+    SECRET_KEY: str = "change-me-for-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 1 week
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
-    # Multi-Agent Configuration
+    # CORS
+    FRONTEND_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+
+    # Optional AI integrations
     LLM_API_KEY: str = ""
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def resolved_database_url(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+
+        if self.MYSQL_PASSWORD:
+            return (
+                f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}"
+                f"@{self.MYSQL_SERVER}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
+            )
+
+        sqlite_path = Path(self.SQLITE_DB_PATH)
+        if not sqlite_path.is_absolute():
+            project_root = Path(__file__).resolve().parents[2]
+            sqlite_path = project_root / sqlite_path
+        return f"sqlite:///{sqlite_path.resolve().as_posix()}"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.FRONTEND_ORIGINS.split(",") if origin.strip()]
+
 
 settings = Settings()

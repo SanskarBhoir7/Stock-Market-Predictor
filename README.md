@@ -1,113 +1,137 @@
 # AI Trading Engine
 
-A full-stack algorithmic trading platform designed for the Indian equity market (NSE/BSE). This application integrates real-time financial tracking, sentiment analysis through natural language processing (NLP), and advanced machine learning predictive models (TimeGAN / WGAN-GP) into a highly responsive, glassmorphic React dashboard.
+AI Trading Engine is a full-stack market intelligence platform for Indian equities. It combines live market data, charting, headline sentiment, and a multi-agent analysis pipeline into a single dashboard for faster decision support.
 
-## 🌟 Key Features
+This repo is currently best described as a **working MVP**: the product surface is real, the frontend is buildable, and the backend has live analysis routes, but it is not yet a final research-grade or deployment-ready system.
 
-- **Multi-Agent Backend Architecture:** Powered by a fast and scalable FastAPI server.
-- **Real-time Indian Market Data:** Integrates directly with `yfinance` to scrape live OHLCV data, fundamentals, and financials (append `.NS` or `.BO` to tickers).
-- **AI TimeGAN Forecaster:** Generates intelligent upper and lower prediction bounds analyzing historical price volatility and directional NLP sentiment bias.
-- **Sentiment Analyzer Agent:** Ingests live Yahoo Finance headlines and flags them automatically as `POSITIVE`, `NEGATIVE`, or `NEUTRAL`.
-- **Professional Grade Charting:** Implements native local `lightweight-charts` by TradingView to render hyper-fluid Candlestick graphics.
-- **Secure JWT Authentication:** Implements `bcrypt` password hashing and secure JSON Web Tokens stored via a strict React `AuthContext` pipeline.
-- **Beautiful UI/UX:** Built on Vite + React + Tailwind CSS utilizing dynamic colors, glassmorphism overlays, and smooth CSS transitions.
+## Overview
 
----
+Retail investors often work with fragmented information. Price action, recent headlines, broader market signals, and basic risk context usually live across multiple tools. AI Trading Engine brings those inputs into one interface so users can inspect a stock, review recent sentiment, and understand the model's directional outlook more quickly.
 
-## 🚀 Getting Started
+The current MVP includes:
+
+- React dashboard with authentication
+- FastAPI backend with market and auth routes
+- Multi-agent scoring pipeline using live Yahoo Finance data
+- Search, chart, news, and prediction flow wired end-to-end
+
+## Key Features
+
+- **Multi-agent backend pipeline:** FastAPI backend orchestrates macro, commodities/FX, news, technical, and risk layers.
+- **Real-time market data:** Pulls live OHLCV data, fundamentals, and ticker search results through `yfinance`.
+- **Signal-fusion prediction:** Produces a directional call, confidence score, probability split, and projected range.
+- **News sentiment layer:** Reviews recent ticker headlines and assigns lightweight sentiment tags.
+- **Interactive charting:** Uses `lightweight-charts` for candlestick visualization.
+- **JWT authentication:** Supports user registration, login, and protected market routes.
+- **Responsive dashboard UI:** Built with React and Tailwind for a polished live-demo experience.
+
+## Architecture
+
+The backend exposes a live **multi-agent market analysis** pipeline.
+
+Currently wired agents:
+
+- **`MacroGeopoliticsAgent`**: Tracks global index breadth, VIX pressure, and geopolitical keyword risk.
+- **`CommoditiesFxAgent`**: Monitors crude, metals, USDINR, DXY, and US10Y impact on equity risk.
+- **`NewsSentimentAgent`**: Scores ticker headlines with lexical sentiment and severe-event penalties.
+- **`TechnicalFlowAgent`**: Computes trend regime, RSI context, breakout confirmation, and volume spikes.
+- **`RiskManagerAgent`**: Fuses agent signals into the final call, confidence, probability split, and risk plan.
+
+Main prediction routes:
+
+- `GET /api/v1/market/prediction?ticker=RELIANCE.NS&horizon=1d`
+- `GET /api/v1/market/realtime-analysis?ticker=RELIANCE.NS&horizon=1d`
+
+## Technology Stack
+
+**Frontend**
+
+- React (Vite)
+- Tailwind CSS
+- TradingView Lightweight Charts
+- Axios
+- React Router
+- Lucide React
+
+**Backend**
+
+- FastAPI
+- Python 3.10+
+- SQLAlchemy
+- MySQL
+- PyMySQL
+- JWT via `python-jose`
+- Password hashing
+- `yfinance`
+- Pandas and NumPy
+
+## Getting Started
 
 ### Prerequisites
 
-- **Python 3.10+**
-- **Node.js (v18+)** and `npm`
-- **MySQL Server** (Running locally on default port `3306`)
+- Python 3.10+
+- Node.js 18+ and `npm`
+- MySQL running locally on port `3306`
 
-### 1. Database Configuration (MySQL)
+### 1. Create the database
 
-Create a local MySQL database named `ai_trading` and ensure your root configuration matches the `backend/core/config.py` definitions.
+Create a local MySQL database named `ai_trading`.
 
 ```sql
 CREATE DATABASE ai_trading;
 ```
 
-### 2. Backend Setup (FastAPI)
+### 2. Configure the backend
 
-Navigate to the `backend` directory, initialize the Python virtual environment, and install dependencies:
+Create `backend/.env` from `backend/.env.example` and set your secrets before running the backend.
+
+If you do not provide MySQL credentials, the backend falls back to a local SQLite database for easier demos.
+
+Install backend dependencies and start the server:
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-
-# Install all AI and System dependencies
-pip install fastapi uvicorn sqlalchemy pymysql pydantic pydantic-settings python-dotenv python-jose[cryptography] bcrypt langchain openai scikit-learn numpy pandas yfinance "pydantic[email]" python-multipart tensorflow keras
-
-# Boot the FastAPI Server
+pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
-The database tables (like `users`) will automatically be created on the very first boot.
-
-### 3. Frontend Setup (React/Vite)
-
-Open a new terminal window, navigate to the `frontend` directory:
+### 3. Start the frontend
 
 ```bash
 cd frontend
-
-# Install Node modules
 npm install
-npm install lightweight-charts lucide-react axios react-router-dom
-
-# Start the Development Server
 npm run dev
 ```
 
-### 4. Accessing the Platform
+### 4. Open the app
 
-1. Open your browser and navigate to `http://localhost:5173`.
-2. As the database starts empty, click **Sign up** at the bottom of the card to create your first account.
-3. Upon registration, you will be redirected to the Dashboard.
-4. Try searching Indian tickers like `RELIANCE.NS`, `TCS.NS`, or `HDFCBANK.NS`.
+1. Visit `http://localhost:5173`
+2. Create an account
+3. Log in
+4. Search tickers such as `RELIANCE.NS`, `TCS.NS`, or `HDFCBANK.NS`
 
----
+## Roadmap
 
-## 🛠️ Technology Stack
+The fastest improvements that would make this repo much stronger are:
 
-**Frontend:**
+1. Expand backend and frontend automated test coverage.
+2. Add reproducible backend tests for auth and market routes.
+3. Add a metrics section showing historical validation or model performance.
+4. Reframe the product around a sharper user-impact story.
+5. Add production-ready integrations such as cloud deployment, analytics, or LLM-backed explanations.
 
-- React (Vite)
-- Tailwind CSS (Dark Mode, Glassmorphic UI)
-- TradingView Lightweight Charts
-- Axios (HTTP Interceptors for Auth)
-- React Router DOM
-- Lucide React Icons
+## Current Status
 
-**Backend:**
+What is already strong:
 
-- FastAPI
-- Python 3.10+
-- MySQL (SQLAlchemy ORM)
-- PyMySQL Driver
-- JWT (python-jose)
-- bcrypt Password Hashing
-- TensorFlow / Keras (For Agent Models)
-- yfinance (Data Parsing)
-- Pandas & Numpy
+- End-to-end product structure
+- Live market and analysis experience
+- Clean frontend demo surface
+- Distinct multi-agent design instead of a single black-box score
 
----
+What is still risky:
 
-## 🛡️ Architecture & Agents
-
-The backend now runs a live **Multi-Agent System** orchestration pipeline.
-Currently wired agents:
-
-- **`MacroGeopoliticsAgent`**: Tracks global index breadth, VIX pressure, and geopolitical keyword risk.
-- **`CommoditiesFxAgent`**: Monitors crude, metals, USDINR, DXY, and US10Y impact on equity risk.
-- **`NewsSentimentAgent`**: Scores ticker news with severe-event penalties and headline relevance.
-- **`TechnicalFlowAgent`**: Computes trend regime, RSI context, breakout confirmation, and volume spikes.
-- **`RiskManagerAgent`**: Performs weighted fusion and returns final call, confidence, bounds, and risk plan.
-
-Main prediction routes:
-- `GET /api/v1/market/prediction?ticker=RELIANCE.NS&horizon=1d`
-- `GET /api/v1/market/realtime-analysis?ticker=RELIANCE.NS&horizon=1d`
+- Demo startup is easiest with the new SQLite fallback, but production still needs stronger DB setup
+- Current sentiment and prediction logic is heuristic, not deeply validated
+- README claims should stay aligned with what the code really does
+- Security and deployment hardening are still needed
