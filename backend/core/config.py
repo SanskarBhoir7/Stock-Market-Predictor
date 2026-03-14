@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     # CORS
     FRONTEND_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
+    # Market data providers
+    UPSTOX_ACCESS_TOKEN: str = ""
+    UPSTOX_BASE_URL: str = "https://api.upstox.com"
+    UPSTOX_NSE_INSTRUMENTS_URL: str = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+    UPSTOX_BSE_INSTRUMENTS_URL: str = "https://assets.upstox.com/market-quote/instruments/exchange/BSE.json.gz"
+    TWELVE_DATA_API_KEY: str = ""
+    TWELVE_DATA_BASE_URL: str = "https://api.twelvedata.com"
+
     # Optional AI integrations
     LLM_API_KEY: str = ""
 

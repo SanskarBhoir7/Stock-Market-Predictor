@@ -7,6 +7,7 @@ import yfinance as yf
 from agents.coordinator_agent import CoordinatorAgent
 from api import deps
 from core.demo_data import get_demo_bundle, has_demo_data, supported_demo_tickers
+from core.upstox_data import get_full_market_quote, get_historical_candles, has_upstox_config, search_instruments
 
 router = APIRouter()
 coordinator = CoordinatorAgent()
@@ -88,6 +89,18 @@ def _is_market_closed_context() -> bool:
     return datetime.now().weekday() >= 5
 
 
+def _period_to_days_back(period: str) -> int:
+    mapping = {
+        "1mo": 35,
+        "3mo": 100,
+        "6mo": 190,
+        "1y": 380,
+        "2y": 760,
+        "5y": 1900,
+    }
+    return mapping.get(period, 190)
+
+
 def _cache_get(key: str):
     cached = _memory_cache.get(key)
     if not cached:
@@ -126,6 +139,11 @@ def get_search_suggestions(
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
+
+        if has_upstox_config():
+            suggestions = search_instruments(query, limit=limit)
+            if suggestions:
+                return _cache_set(cache_key, suggestions, ttl_seconds=120)
 
         safe_limit = max(1, min(int(limit), 15))
         search = yf.Search(query=query, max_results=safe_limit)
@@ -179,6 +197,49 @@ def get_market_data(ticker: str, current_user=Depends(deps.get_current_user)) ->
         if cached is not None:
             return cached
 
+        provider_error = None
+        if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
+            try:
+                quote = get_full_market_quote(ticker)
+                instrument = quote.get("_instrument", {})
+                current_price = (
+                    quote.get("last_price")
+                    or quote.get("ltp")
+                    or quote.get("close")
+                    or (quote.get("ohlc") or {}).get("close")
+                )
+                previous_close = (
+                    (quote.get("ohlc") or {}).get("close")
+                    or quote.get("previous_close")
+                    or current_price
+                )
+                yearly_high = (
+                    (quote.get("extended_market_data") or {}).get("high_52_week")
+                    or quote.get("high_52_week")
+                )
+                market_cap = (quote.get("extended_market_data") or {}).get("market_cap")
+                if current_price is not None:
+                    change = float(current_price) - float(previous_close or current_price)
+                    change_pct = (change / float(previous_close)) * 100 if previous_close else 0.0
+                    return _cache_set(cache_key, {
+                        "ticker": ticker.upper(),
+                        "company_name": instrument.get("name") or instrument.get("trading_symbol") or _resolve_profile(ticker, {})["company_name"],
+                        "sector": instrument.get("segment") or _resolve_profile(ticker, {})["sector"],
+                        "current_price": round(float(current_price), 2),
+                        "previous_close": round(float(previous_close or current_price), 2),
+                        "regular_market_change": round(change, 2),
+                        "regular_market_change_percent": round(change_pct, 2),
+                        "market_cap": _format_market_cap(market_cap),
+                        "pe_ratio": "N/A",
+                        "div_yield": "N/A",
+                        "fifty_two_week_high": round(float(yearly_high), 2) if yearly_high not in (None, "", "N/A") else "N/A",
+                        "data_source": "upstox",
+                        "status_message": "Showing live market data from Upstox.",
+                    }, ttl_seconds=45)
+                provider_error = f"Upstox returned no usable current price for {ticker}."
+            except Exception as exc:
+                provider_error = str(exc)
+
         stock = yf.Ticker(ticker)
         info = _safe_info(stock)
         fast_info = _safe_fast_info(stock)
@@ -207,7 +268,10 @@ def get_market_data(ticker: str, current_user=Depends(deps.get_current_user)) ->
 
         if current_price is None:
             if has_demo_data(ticker):
-                return _cache_set(cache_key, get_demo_bundle(ticker)["data"], ttl_seconds=180)
+                demo_payload = get_demo_bundle(ticker)["data"].copy()
+                if provider_error:
+                    demo_payload["status_message"] = f"Showing offline demo data because Upstox failed: {provider_error}"
+                return _cache_set(cache_key, demo_payload, ttl_seconds=180)
             return _cache_set(cache_key, {
                 "ticker": ticker.upper(),
                 "company_name": profile["company_name"],
@@ -276,6 +340,24 @@ def get_historical_data(ticker: str, period: str = "6mo", current_user=Depends(d
         if cached is not None:
             return cached
 
+        if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
+            candles = get_historical_candles(ticker, interval="day", days_back=_period_to_days_back(period))
+            chart_data = []
+            for row in candles:
+                if len(row) < 6:
+                    continue
+                chart_data.append(
+                    {
+                        "time": str(row[0])[:10],
+                        "open": round(float(row[1]), 2),
+                        "high": round(float(row[2]), 2),
+                        "low": round(float(row[3]), 2),
+                        "close": round(float(row[4]), 2),
+                    }
+                )
+            if chart_data:
+                return _cache_set(cache_key, chart_data, ttl_seconds=120)
+
         stock = yf.Ticker(ticker)
         hist = _safe_history(stock, period)
         if hist is None or hist.empty:
@@ -312,6 +394,11 @@ def get_market_news(ticker: str, current_user=Depends(deps.get_current_user)) ->
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
+
+        if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
+            if has_demo_data(ticker):
+                return _cache_set(cache_key, get_demo_bundle(ticker)["news"], ttl_seconds=180)
+            return []
 
         stock = yf.Ticker(ticker)
         raw_news = getattr(stock, "news", []) or []

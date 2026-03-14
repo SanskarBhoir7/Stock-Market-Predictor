@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.config import settings
+from core.upstox_data import has_upstox_config
 from database import engine, Base
 import models.user  # import models here to ensure they are registered with Base
 
@@ -65,6 +66,7 @@ def health_check():
         "environment": settings.APP_ENV,
         "database_ready": app.state.db_ready,
         "database_error": app.state.db_error,
+        "market_provider": "upstox" if has_upstox_config() else "fallback_only",
     }
 
 from api.routes import api_router

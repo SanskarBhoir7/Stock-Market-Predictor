@@ -2,7 +2,7 @@
 Real-time multi-agent market coordinator.
 
 This module turns the previous placeholder agent design into a working
-signal-fusion pipeline powered by live yfinance feeds.
+signal-fusion pipeline powered by live market feeds.
 """
 
 from __future__ import annotations
@@ -12,7 +12,10 @@ import math
 from statistics import mean
 from typing import Any, Dict, List, Tuple
 
+import pandas as pd
 import yfinance as yf
+
+from core.upstox_data import get_full_market_quote, get_historical_candles, has_upstox_config
 
 
 UTC = timezone.utc
@@ -26,6 +29,38 @@ def _safe_pct_change(ticker: str) -> Dict[str, Any]:
     """
     Return a tiny real-time snapshot for a symbol.
     """
+    if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
+        try:
+            quote = get_full_market_quote(ticker)
+            current_price = (
+                quote.get("last_price")
+                or quote.get("ltp")
+                or quote.get("close")
+                or (quote.get("ohlc") or {}).get("close")
+            )
+            previous_close = (
+                (quote.get("ohlc") or {}).get("close")
+                or quote.get("previous_close")
+                or current_price
+            )
+            if current_price is None or previous_close is None:
+                raise ValueError("missing quote values")
+            change_pct = ((float(current_price) - float(previous_close)) / float(previous_close)) * 100 if float(previous_close) else 0.0
+            return {
+                "ticker": ticker,
+                "status": "OK",
+                "change_pct": round(change_pct, 3),
+                "last_price": round(float(current_price), 4),
+                "timestamp": _utc_now_iso(),
+            }
+        except Exception:
+            return {
+                "ticker": ticker,
+                "status": "DATA_UNAVAILABLE",
+                "change_pct": 0.0,
+                "last_price": None,
+                "timestamp": _utc_now_iso(),
+            }
     try:
         hist = yf.Ticker(ticker).history(period="5d", interval="1d")
         if hist.empty or len(hist["Close"]) < 2:
@@ -58,6 +93,23 @@ def _safe_pct_change(ticker: str) -> Dict[str, Any]:
             "last_price": None,
             "timestamp": _utc_now_iso(),
         }
+
+
+def _ticker_history_frame(ticker: str, days_back: int = 190):
+    if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
+        try:
+            candles = get_historical_candles(ticker, interval="day", days_back=days_back)
+            if not candles:
+                raise ValueError("empty candles")
+            frame = pd.DataFrame(candles, columns=["datetime", "Open", "High", "Low", "Close", "Volume", "OpenInterest"])
+            frame["datetime"] = pd.to_datetime(frame["datetime"])
+            frame = frame.set_index("datetime").sort_index()
+            for column in ["Open", "High", "Low", "Close", "Volume"]:
+                frame[column] = pd.to_numeric(frame[column], errors="coerce")
+            return frame[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
+        except Exception:
+            pass
+    return yf.Ticker(ticker).history(period="6mo", interval="1d")
 
 
 def _vote_from_score(score: float, threshold: float = 0.1) -> str:
@@ -266,6 +318,16 @@ class NewsSentimentAgent:
     SEVERE_WORDS = {"bankruptcy", "default", "war", "sanction", "crash", "ban"}
 
     def analyze(self, ticker: str) -> Dict[str, Any]:
+        if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
+            return {
+                "agent": "News-Sentiment",
+                "vote": "Neutral",
+                "score": 0.0,
+                "reason": "Upstox path does not include a live news provider.",
+                "headline_count": 0,
+                "severe_negative_count": 0,
+                "top_headlines": [],
+            }
         try:
             raw_news = yf.Ticker(ticker).news or []
         except Exception:
@@ -310,7 +372,7 @@ class NewsSentimentAgent:
 class TechnicalFlowAgent:
     def analyze(self, ticker: str) -> Dict[str, Any]:
         try:
-            hist = yf.Ticker(ticker).history(period="6mo", interval="1d")
+            hist = _ticker_history_frame(ticker, days_back=190)
             if hist.empty or len(hist) < 60:
                 raise ValueError("insufficient history")
         except Exception:
@@ -449,7 +511,7 @@ class RiskManagerAgent:
         horizon_d = _horizon_days(horizon)
         daily_sigma = 0.018
         try:
-            hist = yf.Ticker(ticker).history(period="6mo", interval="1d")
+            hist = _ticker_history_frame(ticker, days_back=190)
             if not hist.empty and len(hist) > 30:
                 returns = hist["Close"].pct_change().dropna()
                 if len(returns) > 20:
