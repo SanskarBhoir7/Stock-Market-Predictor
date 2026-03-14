@@ -1,137 +1,118 @@
 # AI Trading Engine
 
-AI Trading Engine is a full-stack market intelligence platform for Indian equities. It combines live market data, charting, headline sentiment, and a multi-agent analysis pipeline into a single dashboard for faster decision support.
+AI Trading Engine is a full-stack market intelligence MVP for Indian equities. It combines authentication, market data, charting, news sentiment, and a multi-agent prediction pipeline into one dashboard.
 
-This repo is currently best described as a **working MVP**: the product surface is real, the frontend is buildable, and the backend has live analysis routes, but it is not yet a final research-grade or deployment-ready system.
+## What This Repo Contains
 
-## Overview
+- `frontend/`: React + Vite dashboard UI
+- `backend/`: FastAPI API with auth and market-analysis endpoints
+- `models/`, `data/`, `notebooks/`, `src/`, `tests/`: research and project assets from earlier development stages
 
-Retail investors often work with fragmented information. Price action, recent headlines, broader market signals, and basic risk context usually live across multiple tools. AI Trading Engine brings those inputs into one interface so users can inspect a stock, review recent sentiment, and understand the model's directional outlook more quickly.
+## Features
 
-The current MVP includes:
+- JWT auth (`register`, `login`, `me`)
+- Ticker search suggestions
+- Market snapshot endpoint (with fallback logic)
+- Historical OHLC endpoint for candlestick charts
+- Headline sentiment tagging
+- Multi-agent prediction and realtime analysis endpoints
+- SQLite fallback for local demo mode when MySQL credentials are not set
 
-- React dashboard with authentication
-- FastAPI backend with market and auth routes
-- Multi-agent scoring pipeline using live Yahoo Finance data
-- Search, chart, news, and prediction flow wired end-to-end
+## Tech Stack
 
-## Key Features
+- Frontend: React, Vite, Tailwind CSS, Axios, lightweight-charts
+- Backend: FastAPI, SQLAlchemy, Pydantic, yfinance, PyMySQL, python-jose
 
-- **Multi-agent backend pipeline:** FastAPI backend orchestrates macro, commodities/FX, news, technical, and risk layers.
-- **Real-time market data:** Pulls live OHLCV data, fundamentals, and ticker search results through `yfinance`.
-- **Signal-fusion prediction:** Produces a directional call, confidence score, probability split, and projected range.
-- **News sentiment layer:** Reviews recent ticker headlines and assigns lightweight sentiment tags.
-- **Interactive charting:** Uses `lightweight-charts` for candlestick visualization.
-- **JWT authentication:** Supports user registration, login, and protected market routes.
-- **Responsive dashboard UI:** Built with React and Tailwind for a polished live-demo experience.
+## Quick Start
 
-## Architecture
-
-The backend exposes a live **multi-agent market analysis** pipeline.
-
-Currently wired agents:
-
-- **`MacroGeopoliticsAgent`**: Tracks global index breadth, VIX pressure, and geopolitical keyword risk.
-- **`CommoditiesFxAgent`**: Monitors crude, metals, USDINR, DXY, and US10Y impact on equity risk.
-- **`NewsSentimentAgent`**: Scores ticker headlines with lexical sentiment and severe-event penalties.
-- **`TechnicalFlowAgent`**: Computes trend regime, RSI context, breakout confirmation, and volume spikes.
-- **`RiskManagerAgent`**: Fuses agent signals into the final call, confidence, probability split, and risk plan.
-
-Main prediction routes:
-
-- `GET /api/v1/market/prediction?ticker=RELIANCE.NS&horizon=1d`
-- `GET /api/v1/market/realtime-analysis?ticker=RELIANCE.NS&horizon=1d`
-
-## Technology Stack
-
-**Frontend**
-
-- React (Vite)
-- Tailwind CSS
-- TradingView Lightweight Charts
-- Axios
-- React Router
-- Lucide React
-
-**Backend**
-
-- FastAPI
-- Python 3.10+
-- SQLAlchemy
-- MySQL
-- PyMySQL
-- JWT via `python-jose`
-- Password hashing
-- `yfinance`
-- Pandas and NumPy
-
-## Getting Started
-
-### Prerequisites
+### 1. Prerequisites
 
 - Python 3.10+
-- Node.js 18+ and `npm`
-- MySQL running locally on port `3306`
+- Node.js 18+
+- Optional: MySQL on `localhost:3306` (for persistent DB instead of SQLite fallback)
 
-### 1. Create the database
-
-Create a local MySQL database named `ai_trading`.
-
-```sql
-CREATE DATABASE ai_trading;
-```
-
-### 2. Configure the backend
-
-Create `backend/.env` from `backend/.env.example` and set your secrets before running the backend.
-
-If you do not provide MySQL credentials, the backend falls back to a local SQLite database for easier demos.
-
-Install backend dependencies and start the server:
+### 2. Backend Setup
 
 ```bash
 cd backend
+cp .env.example .env
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
-### 3. Start the frontend
+Notes:
+
+- If `DATABASE_URL` is set, backend uses it.
+- Else if `MYSQL_PASSWORD` is non-empty, backend builds a MySQL URL from `MYSQL_*`.
+- Else backend falls back to SQLite at `backend/ai_trading.db`.
+
+### 3. Frontend Setup
 
 ```bash
 cd frontend
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-### 4. Open the app
+Default frontend env:
 
-1. Visit `http://localhost:5173`
-2. Create an account
-3. Log in
-4. Search tickers such as `RELIANCE.NS`, `TCS.NS`, or `HDFCBANK.NS`
+```env
+VITE_API_URL=http://localhost:8000/api/v1
+```
 
-## Roadmap
+### 4. Run the App
 
-The fastest improvements that would make this repo much stronger are:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
 
-1. Expand backend and frontend automated test coverage.
-2. Add reproducible backend tests for auth and market routes.
-3. Add a metrics section showing historical validation or model performance.
-4. Reframe the product around a sharper user-impact story.
-5. Add production-ready integrations such as cloud deployment, analytics, or LLM-backed explanations.
+## Backend Environment Variables
+
+`backend/.env.example` is the source of truth. Important keys:
+
+- `APP_ENV`
+- `DATABASE_URL`
+- `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_SERVER`, `MYSQL_PORT`, `MYSQL_DB`
+- `SQLITE_DB_PATH`
+- `SECRET_KEY`
+- `FRONTEND_ORIGINS`
+- `UPSTOX_ACCESS_TOKEN`, `UPSTOX_BASE_URL`
+- `TWELVE_DATA_API_KEY`, `TWELVE_DATA_BASE_URL`
+- `LLM_API_KEY`
+
+## API Routes (v1)
+
+Base prefix: `/api/v1`
+
+Auth:
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
+
+Market:
+
+- `GET /market/search-suggestions?q=RELIANCE&limit=8`
+- `GET /market/data?ticker=RELIANCE.NS`
+- `GET /market/historical?ticker=RELIANCE.NS&period=6mo`
+- `GET /market/news?ticker=RELIANCE.NS`
+- `GET /market/prediction?ticker=RELIANCE.NS&horizon=1d`
+- `GET /market/realtime-analysis?ticker=RELIANCE.NS&horizon=1d`
+
+Health:
+
+- `GET /`
+- `GET /health`
+
+Most market routes require a valid bearer token from `/auth/login`.
 
 ## Current Status
 
-What is already strong:
+This is a working MVP and is suitable for demo and iteration, not production deployment yet.
 
-- End-to-end product structure
-- Live market and analysis experience
-- Clean frontend demo surface
-- Distinct multi-agent design instead of a single black-box score
+Known limitations:
 
-What is still risky:
-
-- Demo startup is easiest with the new SQLite fallback, but production still needs stronger DB setup
-- Current sentiment and prediction logic is heuristic, not deeply validated
-- README claims should stay aligned with what the code really does
-- Security and deployment hardening are still needed
+- Prediction/sentiment logic is heuristic and not fully validated
+- Security/deployment hardening is still needed
+- Test coverage is limited and should be expanded
