@@ -45,6 +45,8 @@ Notes:
 - If `DATABASE_URL` is set, backend uses it.
 - Else if `MYSQL_PASSWORD` is non-empty, backend builds a MySQL URL from `MYSQL_*`.
 - Else backend falls back to SQLite at `backend/ai_trading.db`.
+- If `UPSTOX_ACCESS_TOKEN` is blank, the app runs in `yfinance-only` mode with no market-data token required.
+- Upstox is optional, but recommended if you want stronger Indian-market live/intraday coverage.
 
 ### 3. Frontend Setup
 
@@ -81,6 +83,30 @@ VITE_API_URL=http://localhost:8000/api/v1
 - `TWELVE_DATA_API_KEY`, `TWELVE_DATA_BASE_URL`
 - `LLM_API_KEY`
 
+### Token-Free Mode
+
+You can run this project without any market-data token.
+
+For a simple local setup:
+
+1. Copy `backend/.env.example` to `backend/.env`
+2. Leave `UPSTOX_ACCESS_TOKEN=` blank
+3. Start the backend normally
+
+What works in token-free mode:
+
+- Authentication
+- Ticker search suggestions
+- Market snapshot data via `yfinance`
+- Historical charts via `yfinance`
+- News sentiment and multi-agent analysis using fallback public-market data
+
+Tradeoffs in token-free mode:
+
+- Lower reliability for Indian-market intraday data
+- News availability depends on Yahoo Finance coverage
+- Live market quality is weaker than the Upstox-backed path
+
 ## API Routes (v1)
 
 Base prefix: `/api/v1`
@@ -114,5 +140,6 @@ This is a working MVP and is suitable for demo and iteration, not production dep
 Known limitations:
 
 - Prediction/sentiment logic is heuristic and not fully validated
+- `yfinance-only` mode is suitable for demo/local use, not production-grade market-data reliability
 - Security/deployment hardening is still needed
 - Test coverage is limited and should be expanded

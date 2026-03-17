@@ -57,6 +57,14 @@ def _load_instruments(exchange: str) -> Dict[str, Any]:
     return mapping
 
 
+def warm_instrument_cache() -> None:
+    for exchange in ("NSE", "BSE"):
+        try:
+            _load_instruments(exchange)
+        except Exception:
+            continue
+
+
 def resolve_instrument(ticker: str) -> Dict[str, Any]:
     normalized = (ticker or "").strip().upper()
     if normalized.endswith(".NS"):

@@ -2,9 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from threading import Thread
 
 from core.config import settings
-from core.upstox_data import has_upstox_config
+from core.upstox_data import has_upstox_config, warm_instrument_cache
 from database import engine, Base
 import models.user  # import models here to ensure they are registered with Base
 
@@ -16,6 +17,7 @@ app = FastAPI(
 
 app.state.db_ready = False
 app.state.db_error = None
+app.state.upstox_cache_ready = False
 
 
 def initialize_database() -> None:
@@ -41,6 +43,15 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup() -> None:
     initialize_database()
+    if has_upstox_config():
+        def _warm_upstox() -> None:
+            try:
+                warm_instrument_cache()
+                app.state.upstox_cache_ready = True
+            except Exception:
+                app.state.upstox_cache_ready = False
+
+        Thread(target=_warm_upstox, daemon=True).start()
 
 
 @app.get("/")
@@ -61,12 +72,17 @@ def read_root():
 
 @app.get("/health")
 def health_check():
+    if has_upstox_config():
+        provider_status = "connected" if app.state.upstox_cache_ready else "connecting"
+    else:
+        provider_status = "not_configured"
     return {
         "status": "ok",
         "environment": settings.APP_ENV,
         "database_ready": app.state.db_ready,
         "database_error": app.state.db_error,
         "market_provider": "upstox" if has_upstox_config() else "fallback_only",
+        "market_provider_status": provider_status,
     }
 
 from api.routes import api_router

@@ -1,12 +1,25 @@
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const BACKEND_ROOT = API_URL.replace(/\/api\/v1\/?$/, '');
 
 const api = axios.create({
   baseURL: API_URL,
 });
 
+const rootApi = axios.create({
+  baseURL: BACKEND_ROOT,
+});
+
 api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+rootApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -53,6 +66,10 @@ export const authService = {
 };
 
 export const marketService = {
+  getHealthStatus: async () => {
+    const response = await rootApi.get('/health');
+    return response.data;
+  },
   getSearchSuggestions: async (query, limit = 8) => {
     const response = await api.get(`/market/search-suggestions?q=${encodeURIComponent(query)}&limit=${limit}`);
     return response.data;
@@ -61,8 +78,8 @@ export const marketService = {
     const response = await api.get(`/market/data?ticker=${ticker}`);
     return response.data;
   },
-  getHistoricalData: async (ticker, period = '6mo') => {
-    const response = await api.get(`/market/historical?ticker=${ticker}&period=${period}`);
+  getHistoricalData: async (ticker, period = '6mo', interval = '1d') => {
+    const response = await api.get(`/market/historical?ticker=${ticker}&period=${period}&interval=${interval}`);
     return response.data;
   },
   getNewsData: async (ticker) => {

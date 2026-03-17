@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import re
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,7 +8,8 @@ import yfinance as yf
 from agents.coordinator_agent import CoordinatorAgent
 from api import deps
 from core.demo_data import get_demo_bundle, has_demo_data, supported_demo_tickers
-from core.upstox_data import get_full_market_quote, get_historical_candles, has_upstox_config, search_instruments
+from core.news_data import get_live_news_headlines
+from core.upstox_data import get_full_market_quote, get_historical_candles, has_upstox_config, resolve_instrument, search_instruments
 
 router = APIRouter()
 coordinator = CoordinatorAgent()
@@ -47,9 +49,12 @@ def _safe_fast_info(stock: yf.Ticker) -> Dict[str, Any]:
     return {}
 
 
-def _safe_history(stock: yf.Ticker, period: str):
+def _safe_history(stock: yf.Ticker, period: str, interval: str | None = None):
     try:
-        return stock.history(period=period)
+        kwargs = {"period": period}
+        if interval:
+            kwargs["interval"] = interval
+        return stock.history(**kwargs)
     except Exception:
         return None
 
@@ -99,6 +104,112 @@ def _period_to_days_back(period: str) -> int:
         "5y": 1900,
     }
     return mapping.get(period, 190)
+
+
+def _historical_request_config(timeframe: str) -> Dict[str, Any]:
+    normalized = (timeframe or "1d").strip().lower()
+    mapping = {
+        "1d": {
+            "label": "1d",
+            "period": "1y",
+            "yfinance_interval": "1d",
+            "upstox_interval": "day",
+            "days_back": 380,
+        },
+        "1h": {
+            "label": "1h",
+            "period": "3mo",
+            "yfinance_interval": "60m",
+            "upstox_interval": "30minute",
+            "days_back": 100,
+            "resample_minutes": 60,
+        },
+        "5m": {
+            "label": "5m",
+            "period": "1mo",
+            "yfinance_interval": "5m",
+            "upstox_interval": "1minute",
+            "days_back": 35,
+            "resample_minutes": 5,
+        },
+    }
+    return mapping.get(normalized, mapping["1d"])
+
+
+def _format_chart_time(date_obj: Any, timeframe: str) -> str:
+    if timeframe == "1d":
+        return date_obj.strftime("%Y-%m-%d")
+    return date_obj.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _bucket_start(timestamp: datetime, minutes: int) -> datetime:
+    floored_minute = (timestamp.minute // minutes) * minutes
+    return timestamp.replace(minute=floored_minute, second=0, microsecond=0)
+
+
+def _aggregate_candles(rows: List[List[Any]], bucket_minutes: int) -> List[Dict[str, Any]]:
+    buckets: Dict[datetime, Dict[str, Any]] = {}
+    ordered_keys: List[datetime] = []
+
+    for row in rows:
+        if len(row) < 6:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+            open_price = float(row[1])
+            high_price = float(row[2])
+            low_price = float(row[3])
+            close_price = float(row[4])
+        except (TypeError, ValueError):
+            continue
+
+        bucket = _bucket_start(ts, bucket_minutes)
+        payload = buckets.get(bucket)
+        if payload is None:
+            payload = {
+                "time": bucket.isoformat(),
+                "open": round(open_price, 2),
+                "high": round(high_price, 2),
+                "low": round(low_price, 2),
+                "close": round(close_price, 2),
+            }
+            buckets[bucket] = payload
+            ordered_keys.append(bucket)
+        else:
+            payload["high"] = round(max(float(payload["high"]), high_price), 2)
+            payload["low"] = round(min(float(payload["low"]), low_price), 2)
+            payload["close"] = round(close_price, 2)
+
+    ordered_keys.sort()
+    return [buckets[key] for key in ordered_keys]
+
+
+def _attach_chart_meta(
+    chart_data: List[Dict[str, Any]],
+    provider: str,
+    source_interval: str,
+    requested_interval: str,
+) -> List[Dict[str, Any]]:
+    for item in chart_data:
+        item["provider"] = provider
+        item["source_interval"] = source_interval
+        item["requested_interval"] = requested_interval
+    return chart_data
+
+
+def _headline_sentiment(title: str) -> str:
+    tokens = set(re.findall(r"[A-Za-z]+", (title or "").upper()))
+    positive = {"UP", "JUMP", "SOAR", "GAIN", "PROFIT", "GROWTH", "BUY", "BEAT", "STRONG", "UPGRADE"}
+    negative = {"DOWN", "FALL", "PLUNGE", "LOSS", "DEBT", "CRASH", "SELL", "MISS", "FRAUD", "PROBE", "DOWNGRADE"}
+    severe = {"BANKRUPTCY", "DEFAULT", "BAN", "SANCTION", "WAR"}
+    score = sum(word in tokens for word in positive) - sum(word in tokens for word in negative)
+    if any(word in tokens for word in severe):
+        score -= 1
+    if score > 0:
+        return "POSITIVE"
+    if score < 0:
+        return "NEGATIVE"
+    return "NEUTRAL"
 
 
 def _cache_get(key: str):
@@ -240,6 +351,35 @@ def get_market_data(ticker: str, current_user=Depends(deps.get_current_user)) ->
             except Exception as exc:
                 provider_error = str(exc)
 
+            try:
+                instrument = resolve_instrument(ticker)
+                day_candles = get_historical_candles(ticker, interval="day", days_back=10)
+                if day_candles:
+                    latest = day_candles[-1]
+                    previous = day_candles[-2] if len(day_candles) >= 2 else latest
+                    current_price = float(latest[4])
+                    previous_close = float(previous[4])
+                    day_highs = [float(row[2]) for row in day_candles if len(row) >= 3]
+                    change = current_price - previous_close
+                    change_pct = (change / previous_close) * 100 if previous_close else 0.0
+                    return _cache_set(cache_key, {
+                        "ticker": ticker.upper(),
+                        "company_name": instrument.get("name") or instrument.get("trading_symbol") or _resolve_profile(ticker, {})["company_name"],
+                        "sector": instrument.get("segment") or _resolve_profile(ticker, {})["sector"],
+                        "current_price": round(current_price, 2),
+                        "previous_close": round(previous_close, 2),
+                        "regular_market_change": round(change, 2),
+                        "regular_market_change_percent": round(change_pct, 2),
+                        "market_cap": "N/A",
+                        "pe_ratio": "N/A",
+                        "div_yield": "N/A",
+                        "fifty_two_week_high": round(max(day_highs), 2) if day_highs else "N/A",
+                        "data_source": "upstox_history_fallback",
+                        "status_message": "Showing Upstox-derived market data from recent live candles.",
+                    }, ttl_seconds=45)
+            except Exception as exc:
+                provider_error = provider_error or str(exc)
+
         stock = yf.Ticker(ticker)
         info = _safe_info(stock)
         fast_info = _safe_fast_info(stock)
@@ -267,11 +407,6 @@ def get_market_data(ticker: str, current_user=Depends(deps.get_current_user)) ->
         )
 
         if current_price is None:
-            if has_demo_data(ticker):
-                demo_payload = get_demo_bundle(ticker)["data"].copy()
-                if provider_error:
-                    demo_payload["status_message"] = f"Showing offline demo data because Upstox failed: {provider_error}"
-                return _cache_set(cache_key, demo_payload, ttl_seconds=180)
             return _cache_set(cache_key, {
                 "ticker": ticker.upper(),
                 "company_name": profile["company_name"],
@@ -285,7 +420,11 @@ def get_market_data(ticker: str, current_user=Depends(deps.get_current_user)) ->
                 "div_yield": "N/A",
                 "fifty_two_week_high": "N/A",
                 "data_source": "unavailable",
-                "status_message": "Live data is currently unavailable from Yahoo Finance.",
+                "status_message": (
+                    f"Live data is currently unavailable. Last provider error: {provider_error}"
+                    if provider_error
+                    else "Live data is currently unavailable from the configured providers."
+                ),
             }, ttl_seconds=30)
 
         change = float(current_price) - float(previous_close or current_price)
@@ -324,52 +463,67 @@ def get_market_data(ticker: str, current_user=Depends(deps.get_current_user)) ->
             "status_message": status_message,
         }, ttl_seconds=45)
     except Exception as e:
-        if has_demo_data(ticker):
-            return _cache_set(f"data::{ticker.upper()}", get_demo_bundle(ticker)["data"], ttl_seconds=180)
         raise HTTPException(status_code=500, detail=f"Market data fetch error: {str(e)}")
 
 
 @router.get("/historical", response_model=List[Dict[str, Any]])
-def get_historical_data(ticker: str, period: str = "6mo", current_user=Depends(deps.get_current_user)) -> Any:
+def get_historical_data(
+    ticker: str,
+    period: str = "6mo",
+    interval: str = "1d",
+    current_user=Depends(deps.get_current_user),
+) -> Any:
     """
     Fetch historical OHLCV data for the candlestick chart.
     """
     try:
-        cache_key = f"historical::{ticker.upper()}::{period}"
+        request_cfg = _historical_request_config(interval)
+        resolved_period = request_cfg["period"] if interval != "1d" else period
+        cache_key = f"historical::{ticker.upper()}::{resolved_period}::{request_cfg['label']}"
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
 
-        if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
-            candles = get_historical_candles(ticker, interval="day", days_back=_period_to_days_back(period))
-            chart_data = []
-            for row in candles:
-                if len(row) < 6:
-                    continue
-                chart_data.append(
-                    {
-                        "time": str(row[0])[:10],
-                        "open": round(float(row[1]), 2),
-                        "high": round(float(row[2]), 2),
-                        "low": round(float(row[3]), 2),
-                        "close": round(float(row[4]), 2),
-                    }
-                )
+        upstox_interval = request_cfg["upstox_interval"]
+        if has_upstox_config() and upstox_interval and ticker.upper().endswith((".NS", ".BO")):
+            days_back = _period_to_days_back(resolved_period) if request_cfg["label"] == "1d" else request_cfg["days_back"]
+            candles = get_historical_candles(ticker, interval=upstox_interval, days_back=days_back)
+            resample_minutes = request_cfg.get("resample_minutes")
+            if resample_minutes:
+                chart_data = _aggregate_candles(candles, int(resample_minutes))
+            else:
+                chart_data = []
+                for row in candles:
+                    if len(row) < 6:
+                        continue
+                    chart_data.append(
+                        {
+                            "time": str(row[0])[:19],
+                            "open": round(float(row[1]), 2),
+                            "high": round(float(row[2]), 2),
+                            "low": round(float(row[3]), 2),
+                            "close": round(float(row[4]), 2),
+                        }
+                    )
             if chart_data:
+                chart_data = _attach_chart_meta(
+                    chart_data,
+                    provider="upstox",
+                    source_interval=upstox_interval,
+                    requested_interval=request_cfg["label"],
+                )
                 return _cache_set(cache_key, chart_data, ttl_seconds=120)
 
         stock = yf.Ticker(ticker)
-        hist = _safe_history(stock, period)
+        hist = _safe_history(stock, resolved_period, request_cfg["yfinance_interval"])
         if hist is None or hist.empty:
-            if has_demo_data(ticker):
-                return get_demo_bundle(ticker)["historical"]
             return []
 
         chart_data = []
         for date_obj, row in hist.iterrows():
             chart_data.append(
                 {
-                    "time": date_obj.strftime("%Y-%m-%d"),
+                    "time": _format_chart_time(date_obj, request_cfg["label"]),
                     "open": round(float(row["Open"]), 2),
                     "high": round(float(row["High"]), 2),
                     "low": round(float(row["Low"]), 2),
@@ -377,10 +531,14 @@ def get_historical_data(ticker: str, period: str = "6mo", current_user=Depends(d
                 }
             )
 
+        chart_data = _attach_chart_meta(
+            chart_data,
+            provider="yahoo",
+            source_interval=request_cfg["yfinance_interval"],
+            requested_interval=request_cfg["label"],
+        )
         return _cache_set(cache_key, chart_data, ttl_seconds=120)
     except Exception:
-        if has_demo_data(ticker):
-            return get_demo_bundle(ticker)["historical"]
         return []
 
 
@@ -395,39 +553,22 @@ def get_market_news(ticker: str, current_user=Depends(deps.get_current_user)) ->
         if cached is not None:
             return cached
 
-        if has_upstox_config() and ticker.upper().endswith((".NS", ".BO")):
-            if has_demo_data(ticker):
-                return _cache_set(cache_key, get_demo_bundle(ticker)["news"], ttl_seconds=180)
-            return []
-
-        stock = yf.Ticker(ticker)
-        raw_news = getattr(stock, "news", []) or []
         formatted_news = []
 
-        for n in raw_news[:4]:
+        for n in get_live_news_headlines(ticker, limit=4):
             title = n.get("title", "Market Update")
-            sentiment_tag = "NEUTRAL"
-            if any(word in title.upper() for word in ["UP", "JUMP", "SOAR", "GAIN", "PROFIT", "GROWTH", "BUY"]):
-                sentiment_tag = "POSITIVE"
-            elif any(word in title.upper() for word in ["DOWN", "FALL", "PLUNGE", "LOSS", "DEBT", "CRASH", "SELL"]):
-                sentiment_tag = "NEGATIVE"
-
             formatted_news.append(
                 {
                     "title": title,
                     "link": n.get("link", "#"),
                     "publisher": n.get("publisher", "Financial Press"),
-                    "sentiment": sentiment_tag,
+                    "sentiment": _headline_sentiment(title),
                     "timestamp": n.get("providerPublishTime"),
                 }
             )
 
-        if not formatted_news and has_demo_data(ticker):
-            return _cache_set(cache_key, get_demo_bundle(ticker)["news"], ttl_seconds=180)
         return _cache_set(cache_key, formatted_news, ttl_seconds=180)
     except Exception:
-        if has_demo_data(ticker):
-            return _cache_set(f"news::{ticker.upper()}", get_demo_bundle(ticker)["news"], ttl_seconds=180)
         return []
 
 
@@ -444,12 +585,8 @@ def get_prediction_bounds(
     Kept backward compatible with legacy query params.
     """
     try:
-        return coordinator.process_ticker(ticker=ticker, horizon=horizon)
+        return coordinator.process_ticker(ticker=ticker, horizon=horizon, current_price=current_price)
     except Exception as e:
-        if has_demo_data(ticker):
-            demo_prediction = get_demo_bundle(ticker)["prediction"].copy()
-            demo_prediction["time_horizon"] = horizon
-            return demo_prediction
         raise HTTPException(status_code=500, detail=f"Multi-agent prediction error: {str(e)}")
 
 
@@ -465,8 +602,4 @@ def get_realtime_analysis(
     try:
         return coordinator.process_ticker(ticker=ticker, horizon=horizon)
     except Exception as e:
-        if has_demo_data(ticker):
-            demo_prediction = get_demo_bundle(ticker)["prediction"].copy()
-            demo_prediction["time_horizon"] = horizon
-            return demo_prediction
         raise HTTPException(status_code=500, detail=f"Realtime analysis error: {str(e)}")

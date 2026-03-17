@@ -4,7 +4,7 @@ import { createChart, ColorType } from 'lightweight-charts';
 export const CandlestickChart = ({ data, colors: {
     backgroundColor = 'transparent',
     textColor = '#9ca3af',
-} = {} }) => {
+} = {}, timeframe = '1d' }) => {
     const chartContainerRef = useRef();
     const chartRef = useRef(null);
 
@@ -60,7 +60,7 @@ export const CandlestickChart = ({ data, colors: {
         const candlestickSeries = chart.addCandlestickSeries(seriesOptions);
 
         try {
-            // De-duplicate by day and drop invalid points to avoid runtime chart crashes.
+            // Preserve full timestamps for intraday candles while still filtering invalid points.
             const dataMap = new Map();
             for (let i = 0; i < data.length; i++) {
                 const item = data[i];
@@ -75,9 +75,11 @@ export const CandlestickChart = ({ data, colors: {
                 const dateParsed = new Date(item.time);
                 if (isNaN(dateParsed.getTime())) continue;
 
-                const businessDayStr = dateParsed.toISOString().split('T')[0];
-                dataMap.set(businessDayStr, {
-                    time: businessDayStr,
+                const normalizedTime = timeframe === '1d'
+                    ? dateParsed.toISOString().split('T')[0]
+                    : Math.floor(dateParsed.getTime() / 1000);
+                dataMap.set(normalizedTime, {
+                    time: normalizedTime,
                     open: Number(item.open),
                     high: Number(item.high),
                     low: Number(item.low),
@@ -86,7 +88,11 @@ export const CandlestickChart = ({ data, colors: {
             }
 
             const safeData = Array.from(dataMap.values());
-            safeData.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            safeData.sort((a, b) => {
+                const aValue = typeof a.time === 'number' ? a.time : new Date(a.time).getTime();
+                const bValue = typeof b.time === 'number' ? b.time : new Date(b.time).getTime();
+                return aValue - bValue;
+            });
 
             if (safeData.length > 0) {
                 candlestickSeries.setData(safeData);
@@ -105,7 +111,7 @@ export const CandlestickChart = ({ data, colors: {
                 chartRef.current = null;
             }
         };
-    }, [data, backgroundColor, textColor]);
+    }, [data, backgroundColor, textColor, timeframe]);
 
     return (
         <div ref={chartContainerRef} className="w-full h-full relative z-20" />
