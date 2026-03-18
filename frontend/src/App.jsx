@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import {
   Activity,
   BarChart2,
+  BriefcaseBusiness,
   Globe2,
   LogOut,
   Newspaper,
@@ -30,6 +31,7 @@ const AGENT_META = {
   commodities_fx: { label: 'Commodities and FX', icon: Wallet },
   news_sentiment: { label: 'News Sentiment', icon: Newspaper },
   technical_flow: { label: 'Technical Flow', icon: TrendingUp },
+  fundamentals: { label: 'Fundamentals', icon: BriefcaseBusiness },
   risk_manager: { label: 'Decision Engine', icon: ShieldCheck },
 };
 
@@ -536,6 +538,7 @@ function Dashboard() {
                 {!predictionLoading && prediction && Object.entries(AGENT_META).map(([key, meta]) => {
                   const insight = agentInsights[key];
                   const vote = prediction?.agent_votes?.[key]?.vote;
+                  const status = prediction?.agent_status?.[key] || 'UNKNOWN';
                   const Icon = meta.icon;
 
                   return (
@@ -548,6 +551,7 @@ function Dashboard() {
                           <div>
                             <p className="text-sm font-semibold text-white">{meta.label}</p>
                             <p className={`text-xs font-medium ${voteTone(vote)}`}>{vote || 'Awaiting signal'}</p>
+                            <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">{status}</p>
                           </div>
                         </div>
                         <p className="text-xs text-slate-400">
