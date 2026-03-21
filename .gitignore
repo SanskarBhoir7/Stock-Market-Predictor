@@ -1,5 +1,5 @@
 # Python
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -17,7 +17,7 @@ lib/
 lib64/
 
 # Virtual environments
-.env
+**/.env
 .venv
 env/
 venv/
@@ -39,6 +39,9 @@ models/saved_models/*.pkl
 models/saved_models/*.h5
 models/saved_models/*.keras
 models/saved_models/*.json
+
+# SQLite databases
+*.db
 
 # IDE
 .idea/

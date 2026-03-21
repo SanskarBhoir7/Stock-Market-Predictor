@@ -13,6 +13,20 @@ const Auth = () => {
   const { login, register } = useContext(AuthContext);
   const navigate = useNavigate();
 
+  const getErrorMessage = (err) => {
+    const detail = err?.response?.data?.detail;
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    if (Array.isArray(detail)) {
+      return detail.map((item) => item?.msg || JSON.stringify(item)).join(' ');
+    }
+    if (err?.message === 'Network Error') {
+      return 'Cannot reach the backend server. Make sure FastAPI is running on http://localhost:8000.';
+    }
+    return 'Authentication failed. Please try again.';
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -27,7 +41,7 @@ const Auth = () => {
         navigate('/');
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Authentication Failed');
+      setError(getErrorMessage(err));
     }
   };
 
@@ -97,6 +111,12 @@ const Auth = () => {
               required
             />
           </div>
+
+          {!isLogin && (
+            <p className="text-xs text-gray-400 -mt-2">
+              Password must be at least 8 characters and include at least 1 number and 1 special character.
+            </p>
+          )}
 
           <button
             type="submit"

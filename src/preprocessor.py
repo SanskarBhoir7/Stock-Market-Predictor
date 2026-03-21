@@ -59,12 +59,12 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     data["SMA_50"] = close.rolling(window=50).mean()
     data["EMA_20"] = close.ewm(span=20, adjust=False).mean()
 
-    # RSI (14-day)
+    # RSI (14-day) — Wilder's smoothing (EMA with alpha=1/14)
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
+    avg_gain = gain.ewm(alpha=1.0 / 14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / 14, min_periods=14, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     data["RSI_14"] = 100 - (100 / (1 + rs))
 
@@ -93,16 +93,9 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     ).max(axis=1)
     data["ATR_14"] = true_range.rolling(window=14).mean()
 
-    # On-Balance Volume (OBV)
-    obv = [0]
-    for i in range(1, len(data)):
-        if close.iloc[i] > close.iloc[i - 1]:
-            obv.append(obv[-1] + data["Volume"].iloc[i])
-        elif close.iloc[i] < close.iloc[i - 1]:
-            obv.append(obv[-1] - data["Volume"].iloc[i])
-        else:
-            obv.append(obv[-1])
-    data["OBV"] = obv
+    # On-Balance Volume (OBV) — vectorized
+    direction = np.sign(close.diff())
+    data["OBV"] = (direction * data["Volume"]).fillna(0).cumsum()
 
     # Stochastic Oscillator (14-day %K, 3-day SMA %D)
     low_14 = low.rolling(window=14).min()

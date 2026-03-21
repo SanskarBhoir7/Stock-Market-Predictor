@@ -12,6 +12,7 @@ import math
 import re
 from statistics import mean
 from typing import Any, Dict, List, Tuple
+import asyncio
 
 import pandas as pd
 import yfinance as yf

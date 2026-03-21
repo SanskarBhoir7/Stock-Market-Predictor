@@ -3,6 +3,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Trading Engine"
     VERSION: str = "1.0.0"
@@ -23,7 +26,7 @@ class Settings(BaseSettings):
     # JWT Authentication
     SECRET_KEY: str = "change-me-for-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # CORS
     FRONTEND_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
@@ -39,7 +42,7 @@ class Settings(BaseSettings):
     # Optional AI integrations
     LLM_API_KEY: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
 
     @property
     def resolved_database_url(self) -> str:
@@ -61,6 +64,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.FRONTEND_ORIGINS.split(",") if origin.strip()]
+
+    def validate_secret_key(self) -> None:
+        """Raise if the JWT secret is still the default placeholder in production."""
+        if self.SECRET_KEY == "change-me-for-production" and self.APP_ENV != "development":
+            raise RuntimeError(
+                "SECRET_KEY is still set to the default placeholder. "
+                "Set a strong random secret in your .env before running in production."
+            )
 
 
 settings = Settings()
